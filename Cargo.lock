@@ -3489,7 +3489,6 @@ name = "meetily"
 version = "0.4.1"
 dependencies = [
  "anyhow",
- "async-trait",
  "bytemuck",
  "bytes",
  "chrono",

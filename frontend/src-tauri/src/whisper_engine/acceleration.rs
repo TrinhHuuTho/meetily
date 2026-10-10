@@ -1,4 +1,4 @@
-use crate::audio::{GpuType, PerformanceTier};
+use crate::audio::GpuType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WhisperCompiledBackend {
@@ -61,12 +61,12 @@ impl WhisperContextAcceleration {
 pub fn whisper_context_acceleration_for(
     compiled_backend: WhisperCompiledBackend,
     runtime_detected_gpu: GpuType,
-    performance_tier: PerformanceTier,
 ) -> WhisperContextAcceleration {
     let use_gpu = !matches!(compiled_backend, WhisperCompiledBackend::Cpu);
-    let fast_tier = matches!(performance_tier, PerformanceTier::High | PerformanceTier::Ultra);
+    // Flash attention cuts encoder time substantially on every CUDA/Metal GPU, and
+    // matters most on low-end cards (e.g. GTX 1650: ~25% faster), so it is not tier-gated.
     let flash_attn = match compiled_backend {
-        WhisperCompiledBackend::Metal | WhisperCompiledBackend::Cuda => fast_tier,
+        WhisperCompiledBackend::Metal | WhisperCompiledBackend::Cuda => true,
         WhisperCompiledBackend::Vulkan | WhisperCompiledBackend::HipBlas | WhisperCompiledBackend::Cpu => false,
     };
 
@@ -88,7 +88,6 @@ mod tests {
         let params = whisper_context_acceleration_for(
             WhisperCompiledBackend::Vulkan,
             GpuType::Cuda,
-            PerformanceTier::High,
         );
 
         assert_eq!(params.compiled_backend, WhisperCompiledBackend::Vulkan);
@@ -102,7 +101,6 @@ mod tests {
         let params = whisper_context_acceleration_for(
             WhisperCompiledBackend::Vulkan,
             GpuType::None,
-            PerformanceTier::Low,
         );
 
         assert!(params.use_gpu);
@@ -110,22 +108,14 @@ mod tests {
     }
 
     #[test]
-    fn acceleration_cuda_backend_enables_flash_attention_for_fast_tiers() {
-        let high = whisper_context_acceleration_for(
+    fn acceleration_cuda_backend_enables_flash_attention() {
+        let params = whisper_context_acceleration_for(
             WhisperCompiledBackend::Cuda,
             GpuType::Cuda,
-            PerformanceTier::High,
-        );
-        let ultra = whisper_context_acceleration_for(
-            WhisperCompiledBackend::Cuda,
-            GpuType::Cuda,
-            PerformanceTier::Ultra,
         );
 
-        assert!(high.use_gpu);
-        assert!(high.flash_attn);
-        assert!(ultra.use_gpu);
-        assert!(ultra.flash_attn);
+        assert!(params.use_gpu);
+        assert!(params.flash_attn);
     }
 
     #[test]
@@ -134,7 +124,6 @@ mod tests {
             let params = whisper_context_acceleration_for(
                 WhisperCompiledBackend::Cpu,
                 runtime_gpu,
-                PerformanceTier::Ultra,
             );
 
             assert!(!params.use_gpu);

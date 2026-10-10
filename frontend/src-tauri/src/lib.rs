@@ -14,17 +14,6 @@ macro_rules! perf_debug {
     ($($arg:tt)*) => {};
 }
 
-#[cfg(debug_assertions)]
-macro_rules! perf_trace {
-    ($($arg:tt)*) => {
-        log::trace!($($arg)*)
-    };
-}
-
-#[cfg(not(debug_assertions))]
-macro_rules! perf_trace {
-    ($($arg:tt)*) => {};
-}
 
 // Declare audio module
 pub mod api;
