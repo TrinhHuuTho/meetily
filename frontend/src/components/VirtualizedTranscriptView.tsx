@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useReducer, startTransition, useEffect, useState, memo } from "react";
+import { useCallback, useRef, useReducer, startTransition, useEffect, useState, useMemo, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
 import { useTranscriptStreaming } from "@/hooks/useTranscriptStreaming";
@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { RecordingStatusBar } from "./RecordingStatusBar";
 import { motion, AnimatePresence } from "framer-motion";
 import { TranscriptSegmentData } from "@/types";
+import { languageBadge } from "@/constants/languages";
 
 export interface VirtualizedTranscriptViewProps {
     /** Transcript segments to display */
@@ -69,6 +70,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
     timestamp,
     text,
     confidence,
+    language,
     isStreaming,
     showConfidence,
 }: {
@@ -76,6 +78,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
     timestamp: number;
     text: string;
     confidence?: number;
+    language?: string | null;
     isStreaming: boolean;
     showConfidence: boolean;
 }) {
@@ -96,6 +99,14 @@ const TranscriptSegment = memo(function TranscriptSegment({
                         )}
                     </TooltipContent>
                 </Tooltip>
+                {language && (
+                    <span
+                        className="text-[10px] font-medium text-gray-500 bg-gray-100 rounded px-1 mt-1 flex-shrink-0"
+                        title={`Detected language: ${language}`}
+                    >
+                        {languageBadge(language)}
+                    </span>
+                )}
                 <div className="flex-1">
                     {isStreaming ? (
                         <div className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2">
@@ -156,6 +167,12 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
         virtualizationThreshold: VIRTUALIZATION_THRESHOLD,
         disableAutoScroll,
     });
+
+    // Only label languages when the meeting actually mixes them
+    const showLanguage = useMemo(
+        () => new Set(segments.map(s => s.language).filter(Boolean)).size > 1,
+        [segments]
+    );
 
     // Streaming text effect hook (typewriter animation for new transcripts)
     const { streamingSegmentId, getDisplayText } = useTranscriptStreaming(
@@ -294,6 +311,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         timestamp={segment.timestamp}
                                         text={getDisplayText(segment)}
                                         confidence={segment.confidence}
+                                        language={showLanguage ? segment.language : null}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
                                     />
@@ -350,6 +368,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         timestamp={segment.timestamp}
                                         text={getDisplayText(segment)}
                                         confidence={segment.confidence}
+                                        language={showLanguage ? segment.language : null}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
                                     />

@@ -1,7 +1,19 @@
+export interface Language {
+  code: string;
+  name: string;
+}
+
+/**
+ * Detect per speech segment, choosing only among English, Vietnamese and Chinese.
+ * Mixed-language meetings get each segment transcribed in its own language.
+ */
+export const MULTILINGUAL_EN_VI_ZH = 'auto:en,vi,zh';
+
 // ISO 639-1 language codes supported by Whisper
-export const LANGUAGES = [
+export const LANGUAGES: Language[] = [
   { code: 'auto', name: 'Auto Detect (Original Language)' },
   { code: 'auto-translate', name: 'Auto Detect (Translate to English)' },
+  { code: MULTILINGUAL_EN_VI_ZH, name: 'Auto Detect (English / Vietnamese / Chinese)' },
   { code: 'en', name: 'English' },
   { code: 'zh', name: 'Chinese' },
   { code: 'de', name: 'German' },
@@ -37,4 +49,78 @@ export const LANGUAGES = [
   { code: 'hr', name: 'Croatian' },
   { code: 'bg', name: 'Bulgarian' },
   { code: 'lt', name: 'Lithuanian' },
+  { code: 'la', name: 'Latin' },
+  { code: 'mi', name: 'Maori' },
+  { code: 'ml', name: 'Malayalam' },
+  { code: 'cy', name: 'Welsh' },
+  { code: 'sk', name: 'Slovak' },
+  { code: 'te', name: 'Telugu' },
+  { code: 'fa', name: 'Persian' },
+  { code: 'lv', name: 'Latvian' },
+  { code: 'bn', name: 'Bengali' },
+  { code: 'sr', name: 'Serbian' },
+  { code: 'az', name: 'Azerbaijani' },
+  { code: 'sl', name: 'Slovenian' },
+  { code: 'kn', name: 'Kannada' },
+  { code: 'et', name: 'Estonian' },
+  { code: 'mk', name: 'Macedonian' },
+  { code: 'br', name: 'Breton' },
+  { code: 'eu', name: 'Basque' },
+  { code: 'is', name: 'Icelandic' },
+  { code: 'hy', name: 'Armenian' },
+  { code: 'ne', name: 'Nepali' },
+  { code: 'mn', name: 'Mongolian' },
+  { code: 'bs', name: 'Bosnian' },
+  { code: 'kk', name: 'Kazakh' },
+  { code: 'sq', name: 'Albanian' },
+  { code: 'sw', name: 'Swahili' },
+  { code: 'gl', name: 'Galician' },
+  { code: 'mr', name: 'Marathi' },
+  { code: 'pa', name: 'Punjabi' },
+  { code: 'si', name: 'Sinhala' },
+  { code: 'km', name: 'Khmer' },
+  { code: 'sn', name: 'Shona' },
+  { code: 'yo', name: 'Yoruba' },
+  { code: 'so', name: 'Somali' },
+  { code: 'af', name: 'Afrikaans' },
+  { code: 'oc', name: 'Occitan' },
+  { code: 'ka', name: 'Georgian' },
+  { code: 'be', name: 'Belarusian' },
+  { code: 'tg', name: 'Tajik' },
+  { code: 'sd', name: 'Sindhi' },
+  { code: 'gu', name: 'Gujarati' },
+  { code: 'am', name: 'Amharic' },
+  { code: 'yi', name: 'Yiddish' },
+  { code: 'lo', name: 'Lao' },
+  { code: 'uz', name: 'Uzbek' },
+  { code: 'fo', name: 'Faroese' },
+  { code: 'ht', name: 'Haitian Creole' },
+  { code: 'ps', name: 'Pashto' },
+  { code: 'tk', name: 'Turkmen' },
+  { code: 'nn', name: 'Norwegian Nynorsk' },
+  { code: 'mt', name: 'Maltese' },
+  { code: 'sa', name: 'Sanskrit' },
+  { code: 'lb', name: 'Luxembourgish' },
+  { code: 'my', name: 'Myanmar' },
+  { code: 'bo', name: 'Tibetan' },
+  { code: 'tl', name: 'Tagalog' },
+  { code: 'mg', name: 'Malagasy' },
+  { code: 'as', name: 'Assamese' },
+  { code: 'tt', name: 'Tatar' },
+  { code: 'haw', name: 'Hawaiian' },
+  { code: 'ln', name: 'Lingala' },
+  { code: 'ha', name: 'Hausa' },
+  { code: 'ba', name: 'Bashkir' },
+  { code: 'jw', name: 'Javanese' },
+  { code: 'su', name: 'Sundanese' },
 ];
+
+/** True for automatic modes ("auto", "auto-translate", "auto:<codes>") */
+export function isAutoLanguage(code: string): boolean {
+  return code === 'auto' || code.startsWith('auto-') || code.startsWith('auto:');
+}
+
+/** Short label for a detected language code, e.g. "vi" -> "VI" */
+export function languageBadge(code?: string | null): string | null {
+  return code ? code.toUpperCase() : null;
+}

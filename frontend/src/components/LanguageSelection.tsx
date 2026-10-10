@@ -1,117 +1,75 @@
 import React, { useState, useEffect } from 'react';
 import { Globe } from 'lucide-react';
 import { toast } from 'sonner';
+import { listen } from '@tauri-apps/api/event';
+import { WhisperAPI } from '@/lib/whisper';
 import { useConfig } from '@/contexts/ConfigContext';
+import { LANGUAGES, MULTILINGUAL_EN_VI_ZH, isAutoLanguage } from '@/constants/languages';
 
-export interface Language {
-  code: string;
-  name: string;
+
+// Small multilingual models the backend can use for fast language detection
+const LANGUAGE_DETECTOR_MODELS = ['base', 'base-q5_1', 'tiny', 'tiny-q5_1', 'small-q5_1', 'small'];
+
+/**
+ * Restricted auto-detection is fast only with a small detector model downloaded;
+ * otherwise the main model runs an extra full encoder pass per segment.
+ */
+function LanguageDetectorModelHint() {
+  const [hasDetector, setHasDetector] = useState<boolean | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
+
+  useEffect(() => {
+    WhisperAPI.getAvailableModels()
+      .then(models =>
+        setHasDetector(models.some(m => LANGUAGE_DETECTOR_MODELS.includes(m.name) && m.status === 'Available'))
+      )
+      .catch(() => setHasDetector(null));
+
+    const unlisteners = [
+      listen<{ modelName: string; progress: number }>('model-download-progress', event => {
+        if (event.payload.modelName === 'base') setProgress(event.payload.progress);
+      }),
+      listen<{ modelName: string }>('model-download-complete', event => {
+        if (event.payload.modelName === 'base') {
+          setProgress(null);
+          setHasDetector(true);
+        }
+      }),
+    ];
+    return () => {
+      unlisteners.forEach(unlisten => unlisten.then(fn => fn()));
+    };
+  }, []);
+
+  if (hasDetector !== false) return null;
+
+  const download = async () => {
+    setProgress(0);
+    try {
+      await WhisperAPI.downloadModel('base');
+    } catch (error) {
+      setProgress(null);
+      toast.error('Failed to download the language detection model', {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  return (
+    <div className="mt-2 flex items-center justify-between gap-2">
+      <p className="text-xs">
+        Download the small <strong>base</strong> model (142 MB) to keep language detection fast.
+      </p>
+      <button
+        onClick={download}
+        disabled={progress !== null}
+        className="text-xs px-2 py-1 rounded bg-blue-600 text-white disabled:bg-blue-300 flex-shrink-0"
+      >
+        {progress === null ? 'Download' : `${progress}%`}
+      </button>
+    </div>
+  );
 }
-
-// ISO 639-1 language codes supported by Whisper
-const LANGUAGES: Language[] = [
-  { code: 'auto', name: 'Auto Detect (Original Language)' },
-  { code: 'auto-translate', name: 'Auto Detect (Translate to English)' },
-  { code: 'en', name: 'English' },
-  { code: 'zh', name: 'Chinese' },
-  { code: 'de', name: 'German' },
-  { code: 'es', name: 'Spanish' },
-  { code: 'ru', name: 'Russian' },
-  { code: 'ko', name: 'Korean' },
-  { code: 'fr', name: 'French' },
-  { code: 'ja', name: 'Japanese' },
-  { code: 'pt', name: 'Portuguese' },
-  { code: 'tr', name: 'Turkish' },
-  { code: 'pl', name: 'Polish' },
-  { code: 'ca', name: 'Catalan' },
-  { code: 'nl', name: 'Dutch' },
-  { code: 'ar', name: 'Arabic' },
-  { code: 'sv', name: 'Swedish' },
-  { code: 'it', name: 'Italian' },
-  { code: 'id', name: 'Indonesian' },
-  { code: 'hi', name: 'Hindi' },
-  { code: 'fi', name: 'Finnish' },
-  { code: 'vi', name: 'Vietnamese' },
-  { code: 'he', name: 'Hebrew' },
-  { code: 'uk', name: 'Ukrainian' },
-  { code: 'el', name: 'Greek' },
-  { code: 'ms', name: 'Malay' },
-  { code: 'cs', name: 'Czech' },
-  { code: 'ro', name: 'Romanian' },
-  { code: 'da', name: 'Danish' },
-  { code: 'hu', name: 'Hungarian' },
-  { code: 'ta', name: 'Tamil' },
-  { code: 'no', name: 'Norwegian' },
-  { code: 'th', name: 'Thai' },
-  { code: 'ur', name: 'Urdu' },
-  { code: 'hr', name: 'Croatian' },
-  { code: 'bg', name: 'Bulgarian' },
-  { code: 'lt', name: 'Lithuanian' },
-  { code: 'la', name: 'Latin' },
-  { code: 'mi', name: 'Maori' },
-  { code: 'ml', name: 'Malayalam' },
-  { code: 'cy', name: 'Welsh' },
-  { code: 'sk', name: 'Slovak' },
-  { code: 'te', name: 'Telugu' },
-  { code: 'fa', name: 'Persian' },
-  { code: 'lv', name: 'Latvian' },
-  { code: 'bn', name: 'Bengali' },
-  { code: 'sr', name: 'Serbian' },
-  { code: 'az', name: 'Azerbaijani' },
-  { code: 'sl', name: 'Slovenian' },
-  { code: 'kn', name: 'Kannada' },
-  { code: 'et', name: 'Estonian' },
-  { code: 'mk', name: 'Macedonian' },
-  { code: 'br', name: 'Breton' },
-  { code: 'eu', name: 'Basque' },
-  { code: 'is', name: 'Icelandic' },
-  { code: 'hy', name: 'Armenian' },
-  { code: 'ne', name: 'Nepali' },
-  { code: 'mn', name: 'Mongolian' },
-  { code: 'bs', name: 'Bosnian' },
-  { code: 'kk', name: 'Kazakh' },
-  { code: 'sq', name: 'Albanian' },
-  { code: 'sw', name: 'Swahili' },
-  { code: 'gl', name: 'Galician' },
-  { code: 'mr', name: 'Marathi' },
-  { code: 'pa', name: 'Punjabi' },
-  { code: 'si', name: 'Sinhala' },
-  { code: 'km', name: 'Khmer' },
-  { code: 'sn', name: 'Shona' },
-  { code: 'yo', name: 'Yoruba' },
-  { code: 'so', name: 'Somali' },
-  { code: 'af', name: 'Afrikaans' },
-  { code: 'oc', name: 'Occitan' },
-  { code: 'ka', name: 'Georgian' },
-  { code: 'be', name: 'Belarusian' },
-  { code: 'tg', name: 'Tajik' },
-  { code: 'sd', name: 'Sindhi' },
-  { code: 'gu', name: 'Gujarati' },
-  { code: 'am', name: 'Amharic' },
-  { code: 'yi', name: 'Yiddish' },
-  { code: 'lo', name: 'Lao' },
-  { code: 'uz', name: 'Uzbek' },
-  { code: 'fo', name: 'Faroese' },
-  { code: 'ht', name: 'Haitian Creole' },
-  { code: 'ps', name: 'Pashto' },
-  { code: 'tk', name: 'Turkmen' },
-  { code: 'nn', name: 'Norwegian Nynorsk' },
-  { code: 'mt', name: 'Maltese' },
-  { code: 'sa', name: 'Sanskrit' },
-  { code: 'lb', name: 'Luxembourgish' },
-  { code: 'my', name: 'Myanmar' },
-  { code: 'bo', name: 'Tibetan' },
-  { code: 'tl', name: 'Tagalog' },
-  { code: 'mg', name: 'Malagasy' },
-  { code: 'as', name: 'Assamese' },
-  { code: 'tt', name: 'Tatar' },
-  { code: 'haw', name: 'Hawaiian' },
-  { code: 'ln', name: 'Lingala' },
-  { code: 'ha', name: 'Hausa' },
-  { code: 'ba', name: 'Bashkir' },
-  { code: 'jw', name: 'Javanese' },
-  { code: 'su', name: 'Sundanese' },
-];
 
 interface LanguageSelectionProps {
   selectedLanguage: string;
@@ -183,7 +141,7 @@ export function LanguageSelection({
           {availableLanguages.map((language) => (
             <option key={language.code} value={language.code}>
               {language.name}
-              {language.code !== 'auto' && language.code !== 'auto-translate' && ` (${language.code})`}
+              {!isAutoLanguage(language.code) && ` (${language.code})`}
             </option>
           ))}
         </select>
@@ -192,7 +150,7 @@ export function LanguageSelection({
         {isParakeet && (
           <div className="p-2 bg-amber-50 border border-amber-200 rounded text-amber-800">
             <p className="font-medium">ℹ️ Parakeet Language Support</p>
-            <p className="mt-1 text-xs">Parakeet currently only supports automatic language detection. Manual language selection is not available. Use Whisper if you need to specify a particular language.</p>
+            <p className="mt-1 text-xs">Parakeet currently only supports automatic language detection of European languages. Use Local Whisper to pick a specific language or to transcribe Vietnamese and Chinese (including mixed English / Vietnamese / Chinese meetings).</p>
           </div>
         )}
 
@@ -207,13 +165,23 @@ export function LanguageSelection({
               <p className="mt-1">For best accuracy, select your specific language (e.g., English, Spanish, etc.)</p>
             </div>
           )}
+          {selectedLanguage === MULTILINGUAL_EN_VI_ZH && (
+            <div className="p-2 bg-blue-50 border border-blue-200 rounded text-blue-800">
+              <p className="font-medium">🌏 English / Vietnamese / Chinese</p>
+              <p className="mt-1">
+                Each speech segment is detected as English, Vietnamese or Chinese and transcribed in
+                that language. Requires the Local Whisper engine (large-v3-turbo recommended).
+              </p>
+              {!isParakeet && <LanguageDetectorModelHint />}
+            </div>
+          )}
           {selectedLanguage === 'auto-translate' && (
             <div className="p-2 bg-blue-50 border border-blue-200 rounded text-blue-800">
               <p className="font-medium">🌐 Translation Mode Active</p>
               <p className="mt-1">All audio will be automatically translated to English. Best for multilingual meetings where you need English output.</p>
             </div>
           )}
-          {selectedLanguage !== 'auto' && selectedLanguage !== 'auto-translate' && (
+          {!isAutoLanguage(selectedLanguage) && (
             <p className="text-gray-600">
               Transcription will be optimized for <strong>{selectedLanguageName}</strong>
             </p>
