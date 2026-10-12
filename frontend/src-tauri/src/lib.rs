@@ -21,6 +21,7 @@ pub mod audio;
 pub mod config;
 pub mod console_utils;
 pub mod database;
+pub mod export;
 pub mod notifications;
 pub mod ollama;
 pub mod onboarding;
@@ -603,6 +604,7 @@ pub fn run() {
             api::api_save_transcript,
             api::open_meeting_folder,
             api::open_external_url,
+            export::save_pdf_file,
             // Custom OpenAI commands
             api::api_save_custom_openai_config,
             api::api_get_custom_openai_config,
