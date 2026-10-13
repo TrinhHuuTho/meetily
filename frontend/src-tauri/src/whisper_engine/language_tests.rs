@@ -46,6 +46,9 @@ fn fits_encoder_context_to_short_segments_only() {
 /// Run with:
 /// TRINOTE_MODELS_DIR=~/.local/share/<id>/models TRINOTE_BENCH_SAMPLES=<dir with manifest.json>
 /// cargo test -p trinote --features cuda --lib bench_language_modes -- --ignored --nocapture
+///
+/// Optional: TRINOTE_BENCH_SKIP_PARAKEET=1 skips the CPU Parakeet baseline (e.g. when only
+/// comparing GPU backends), TRINOTE_BENCH_OUT=<file.json> saves timings and transcripts.
 #[tokio::test]
 #[ignore]
 async fn bench_language_modes() {
@@ -73,17 +76,21 @@ async fn bench_language_modes() {
     let audio_seconds: f64 = segments.iter().map(|s| s.2.len() as f64 / 16000.0).sum();
     println!("\n{} segments, {:.1}s of speech\n", segments.len(), audio_seconds);
 
+    let mut rows = Vec::new();
+
     // Parakeet baseline (current default engine)
-    let parakeet = crate::parakeet_engine::ParakeetEngine::new_with_models_dir(Some(models_dir.clone())).unwrap();
-    parakeet.discover_models().await.unwrap();
-    parakeet.load_model("parakeet-tdt-0.6b-v3-int8").await.unwrap();
-    let _ = parakeet.transcribe_audio(segments[0].2.clone()).await; // warm-up
-    let start = Instant::now();
-    for (_, _, audio) in &segments {
-        parakeet.transcribe_audio(audio.clone()).await.unwrap();
+    if std::env::var_os("TRINOTE_BENCH_SKIP_PARAKEET").is_none() {
+        let parakeet = crate::parakeet_engine::ParakeetEngine::new_with_models_dir(Some(models_dir.clone())).unwrap();
+        parakeet.discover_models().await.unwrap();
+        parakeet.load_model("parakeet-tdt-0.6b-v3-int8").await.unwrap();
+        let _ = parakeet.transcribe_audio(segments[0].2.clone()).await; // warm-up
+        let start = Instant::now();
+        for (_, _, audio) in &segments {
+            parakeet.transcribe_audio(audio.clone()).await.unwrap();
+        }
+        rows.push(("parakeet (CPU)".to_string(), start.elapsed().as_secs_f64(), "-".to_string()));
+        parakeet.unload_model().await;
     }
-    let parakeet_secs = start.elapsed().as_secs_f64();
-    parakeet.unload_model().await;
 
     let whisper = super::WhisperEngine::new_with_models_dir(Some(models_dir)).unwrap();
     whisper.discover_models().await.unwrap();
@@ -91,8 +98,8 @@ async fn bench_language_modes() {
     let _ = whisper.transcribe_audio_with_confidence(segments[0].2.clone(), Some("en".into())).await; // warm-up
     let _ = whisper.transcribe_audio_with_confidence(segments[0].2.clone(), Some("auto:en,vi,zh".into())).await;
 
-    let mut rows = vec![("parakeet (CPU)".to_string(), parakeet_secs, "-".to_string())];
     let mut outputs: Vec<Vec<String>> = Vec::new();
+    let mut languages: Vec<Vec<Option<String>>> = Vec::new();
     for (label, preference, fit) in [
         ("fixed, full ctx", None, false),
         ("fixed, fitted ctx", None, true),
@@ -102,6 +109,7 @@ async fn bench_language_modes() {
         let start = Instant::now();
         let mut correct = 0;
         let mut texts = Vec::new();
+        let mut detected = Vec::new();
         for (_, expected, audio) in &segments {
             let pref = preference.map(str::to_string).unwrap_or_else(|| expected.clone());
             let result = whisper.transcribe_audio_with_confidence(audio.clone(), Some(pref)).await.unwrap();
@@ -109,9 +117,11 @@ async fn bench_language_modes() {
                 correct += 1;
             }
             texts.push(result.text);
+            detected.push(result.language);
         }
         rows.push((label.to_string(), start.elapsed().as_secs_f64(), format!("{correct}/{}", segments.len())));
         outputs.push(texts);
+        languages.push(detected);
     }
 
     // Quality: how much the fitted-context transcripts differ from full-context ones
@@ -127,8 +137,27 @@ async fn bench_language_modes() {
     println!("Mean word similarity full vs fitted: {:.3}\n", similarity_sum / segments.len() as f64);
 
     println!("{:<28} {:>9} {:>8} {:>10}", "engine / mode", "seconds", "RTF", "lang ok");
-    for (name, secs, accuracy) in rows {
+    for (name, secs, accuracy) in &rows {
         println!("{:<28} {:>9.2} {:>8.3} {:>10}", name, secs, secs / audio_seconds, accuracy);
+    }
+
+    if let Ok(out) = std::env::var("TRINOTE_BENCH_OUT") {
+        let report = serde_json::json!({
+            "audio_seconds": audio_seconds,
+            "rows": rows.iter().map(|(name, secs, accuracy)| serde_json::json!({
+                "mode": name, "seconds": secs, "rtf": secs / audio_seconds, "lang_ok": accuracy,
+            })).collect::<Vec<_>>(),
+            "segments": segments.iter().enumerate().map(|(i, (file, expected, _))| serde_json::json!({
+                "file": file,
+                "expected": expected,
+                "full_ctx": outputs[0][i],
+                "fitted_ctx": outputs[1][i],
+                "auto": outputs[2][i],
+                "auto_language": languages[2][i],
+            })).collect::<Vec<_>>(),
+        });
+        std::fs::write(&out, serde_json::to_string_pretty(&report).unwrap()).unwrap();
+        println!("Saved report to {out}");
     }
 }
 
