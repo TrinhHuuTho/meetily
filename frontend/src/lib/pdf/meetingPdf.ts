@@ -263,7 +263,7 @@ export function buildMeetingDocDefinition(input: MeetingPdfInput): TDocumentDefi
   return {
     pageSize: 'A4',
     pageMargins: [50, 56, 50, 56],
-    info: { title: input.title, creator: 'Meetily' },
+    info: { title: input.title, creator: 'TriNote' },
     defaultStyle: { font: 'NotoSans', fontSize: 10.5, lineHeight: 1.25, color: '#111827' },
     footer: (currentPage, pageCount) => ({
       text: `${currentPage} / ${pageCount}`,

@@ -44,18 +44,18 @@ fn fits_encoder_context_to_short_segments_only() {
 /// Benchmark live-style per-segment transcription on the production engine.
 ///
 /// Run with:
-/// MEETILY_MODELS_DIR=~/.local/share/<id>/models MEETILY_BENCH_SAMPLES=<dir with manifest.json>
-/// cargo test -p meetily --features cuda --lib bench_language_modes -- --ignored --nocapture
+/// TRINOTE_MODELS_DIR=~/.local/share/<id>/models TRINOTE_BENCH_SAMPLES=<dir with manifest.json>
+/// cargo test -p trinote --features cuda --lib bench_language_modes -- --ignored --nocapture
 #[tokio::test]
 #[ignore]
 async fn bench_language_modes() {
     use std::path::PathBuf;
     use std::time::Instant;
 
-    let models_dir = PathBuf::from(std::env::var("MEETILY_MODELS_DIR").expect("MEETILY_MODELS_DIR"));
-    let samples_dir = PathBuf::from(std::env::var("MEETILY_BENCH_SAMPLES").expect("MEETILY_BENCH_SAMPLES"));
+    let models_dir = PathBuf::from(std::env::var("TRINOTE_MODELS_DIR").expect("TRINOTE_MODELS_DIR"));
+    let samples_dir = PathBuf::from(std::env::var("TRINOTE_BENCH_SAMPLES").expect("TRINOTE_BENCH_SAMPLES"));
     let whisper_model =
-        std::env::var("MEETILY_BENCH_WHISPER_MODEL").unwrap_or_else(|_| "large-v3-turbo-q5_0".into());
+        std::env::var("TRINOTE_BENCH_WHISPER_MODEL").unwrap_or_else(|_| "large-v3-turbo-q5_0".into());
 
     let manifest: Vec<serde_json::Value> =
         serde_json::from_str(&std::fs::read_to_string(samples_dir.join("manifest.json")).unwrap()).unwrap();
