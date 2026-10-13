@@ -31,6 +31,32 @@ const sourceSans3 = Source_Sans_3({
   variable: '--font-source-sans-3',
 })
 
+// Dev only: next dev occasionally leaves a chunk request hanging in the Tauri
+// webview on first load ("ChunkLoadError: Loading chunk app/layout failed
+// (timeout)"), while a reload fetches the same file instantly. Runs from the
+// server-rendered HTML, so it works even when the layout chunk never loads.
+// Reloads at most 3 times per 10 minutes to avoid a reload loop.
+const DEV_CHUNK_RECOVERY_SCRIPT = `(function () {
+  var KEY = 'devChunkLoadReloads';
+  function recover(error) {
+    if (!error || error.name !== 'ChunkLoadError') return;
+    var now = Date.now();
+    var reloads;
+    try {
+      reloads = JSON.parse(sessionStorage.getItem(KEY) || '[]').filter(function (t) { return now - t < 600000; });
+      if (reloads.length >= 3) return;
+      reloads.push(now);
+      sessionStorage.setItem(KEY, JSON.stringify(reloads));
+    } catch (e) {
+      return;
+    }
+    console.warn('Reloading after ChunkLoadError:', error.message);
+    location.reload();
+  }
+  window.addEventListener('error', function (e) { recover(e.error); });
+  window.addEventListener('unhandledrejection', function (e) { recover(e.reason); });
+})();`
+
 // Module-level component — stable reference across RootLayout re-renders.
 // Defined here (not inside RootLayout) so React never sees a new function type
 // on re-render, which would cause unmount/remount and break initialization logic.
@@ -210,6 +236,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${sourceSans3.variable} font-sans antialiased`}>
+        {process.env.NODE_ENV === 'development' && (
+          <script dangerouslySetInnerHTML={{ __html: DEV_CHUNK_RECOVERY_SCRIPT }} />
+        )}
         <RecordingStateProvider>
           <TranscriptProvider>
             <ConfigProvider>
