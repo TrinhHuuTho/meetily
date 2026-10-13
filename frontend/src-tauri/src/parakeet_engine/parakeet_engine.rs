@@ -124,7 +124,7 @@ const PARAKEET_MODEL_SPECS: &[ModelSpec] = &[
         quantization: QuantizationType::Int8,
         speed: "Ultra Fast (v3)",
         description: "Real time on M4 Max, latest version with int8 quantization",
-        source_base_url: "https://meetily.towardsgeneralintelligence.com/models/parakeet-tdt-0.6b-v3-onnx",
+        source_base_url: "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce",
         artifacts: PARAKEET_V3_ARTIFACTS,
     },
     ModelSpec {
