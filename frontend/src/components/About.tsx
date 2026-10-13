@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import Image from 'next/image';
 
-const REPOSITORY_URL = 'https://github.com/TrinhHuuTho/meetily';
+const REPOSITORY_URL = 'https://github.com/TrinhHuuTho/trinote';
 const UPSTREAM_URL = 'https://github.com/Zackriya-Solutions/meeting-minutes';
 
 const FEATURES = [
