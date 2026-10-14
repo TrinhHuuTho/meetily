@@ -30,7 +30,7 @@ TriNote is a fork of [Meetily](https://github.com/Zackriya-Solutions/meeting-min
 
 ## Install
 
-TriNote 1.0 is available for Linux on x86_64 and is built for Ubuntu 22.04 and newer. Windows and macOS builds are planned.
+TriNote 1.0 is available for Linux on x86_64 and is built for Ubuntu 22.04 and newer. It needs a CPU with AVX2, which most Intel Core CPUs since 2013 and AMD CPUs since 2015 have; some Pentium and Celeron models do not. Windows and macOS builds are planned.
 
 Download the `.deb` or the AppImage from the [latest release](https://github.com/TrinhHuuTho/trinote/releases/latest).
 
