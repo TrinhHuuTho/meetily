@@ -69,7 +69,7 @@ Recording a call needs both the microphone and what the other side says. On Linu
 
 **Approach:**
 
-- whisper.cpp 1.7 → 1.8.3 via whisper-rs 0.16 (`8f4d6f2`). The new Vulkan backend ran the same segments on the integrated GPU without a reset.
+- whisper.cpp 1.7 → 1.8.3 via whisper-rs 0.16 (`8f4d6f2`). The new Vulkan backend ran the whole benchmark on the same integrated GPU without a single reset, at RTF 0.90 in the EN/VI/ZH mode.
 - Device selection (`9508fad`): whisper.cpp 1.8 uses the first GPU it lists, which on hybrid laptops is the integrated one. TriNote now picks the discrete GPU first, then the integrated GPU, then the CPU.
 - Crash recovery (`7de64dd`): a GPU fault aborts the process from native code, where Rust cannot catch it. While speech recognition runs on the GPU, a marker file exists; finding it at startup means the last run died on the GPU, so speech recognition switches to the CPU and the user is told. The summary engine runs in its own process, so a crash there is retried on the CPU straight away. A settings switch turns the GPU off or back on.
 - Summaries (`ff16c66`, `4e0e8bb`): GPU offload is sized from the free Vulkan memory instead of an assumed 4 GB, and CPU-only mode gives llama.cpp no GPU devices at all. With only zero GPU layers, llama.cpp still sent prompt processing to the GPU.
@@ -82,6 +82,7 @@ Recording a call needs both the microphone and what the other side says. On Linu
 | Vulkan, whisper.cpp 1.7 | 0.237 |
 | CUDA, whisper.cpp 1.8 | 0.152 |
 | **Vulkan, whisper.cpp 1.8 (release build)** | **0.125** |
+| Vulkan, whisper.cpp 1.8, AMD Radeon integrated GPU | 0.90 |
 | CPU only, 6 cores (was 1.36 with 4 threads) | 1.00 |
 
 Vulkan is now the fastest option even on NVIDIA hardware, so a single Vulkan build serves every GPU vendor. The Linux release does not need a separate CUDA package. More numbers, including summaries and smaller models, are in [docs/GPU_ACCELERATION.md](docs/GPU_ACCELERATION.md).

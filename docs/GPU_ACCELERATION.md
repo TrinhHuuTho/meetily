@@ -42,7 +42,7 @@ After updating your graphics driver, use **Try the GPU again** in the same setti
 
 ## Performance
 
-Measured on an Acer laptop: AMD Ryzen 5 5500U (6 cores), NVIDIA GeForce GTX 1650 (4 GB), 22 GB RAM, Ubuntu 26.04, TriNote 1.0 (whisper.cpp 1.8.3).
+Measured on an Acer laptop: AMD Ryzen 5 5500U (6 cores) with Radeon integrated graphics, NVIDIA GeForce GTX 1650 (4 GB), 22 GB RAM, Ubuntu 26.04, TriNote 1.0 (whisper.cpp 1.8.3).
 
 ### Speech recognition
 
@@ -52,6 +52,7 @@ Whisper `large-v3-turbo-q5_0` transcribed 34 real segments (341 s of speech) fro
 | --- | --- | --- |
 | Vulkan on GTX 1650 (release build) | 0.111 | **0.125** |
 | CUDA on GTX 1650 (built from source) | 0.125 | 0.152 |
+| Vulkan on the Radeon integrated GPU | 0.83 | 0.90 |
 | CPU only, 6 cores | 0.82 | 1.00 |
 
 The CPU rows come from 5 of the segments (41 s). The auto mode adds a language check per segment with the small `base` model; without `base` downloaded, the large model does the check itself and is slower.
