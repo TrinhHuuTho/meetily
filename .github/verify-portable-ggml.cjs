@@ -31,7 +31,7 @@ try {
       }
     }
   }
-  console.log('Verified Windows Whisper CPU portability before bundling.');
+  console.log('Verified Whisper CPU portability (no GGML_NATIVE, no AVX-512).');
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;
