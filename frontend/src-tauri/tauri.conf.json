@@ -61,6 +61,13 @@
     },
     "bundle": {
         "active": true,
+        "publisher": "Trinh Huu Tho",
+        "homepage": "https://github.com/TrinhHuuTho/trinote",
+        "copyright": "Copyright (c) 2024 Zackriya Solutions, (c) 2026 Trinh Huu Tho",
+        "license": "MIT",
+        "category": "Productivity",
+        "shortDescription": "Private meeting notes for English, Vietnamese and Chinese",
+        "longDescription": "Record, transcribe and summarize meetings on your own computer. TriNote transcribes mixed English, Vietnamese and Chinese meetings live, summarizes them with a local or cloud model of your choice, and exports notes as PDF. No account, no analytics.",
         "targets": [
             "deb",
             "appimage",
@@ -70,6 +77,9 @@
             "dmg"
         ],
         "icon": [
+            "icons/32x32.png",
+            "icons/128x128.png",
+            "icons/128x128@2x.png",
             "icons/icon.png",
             "icons/app_icon.icns",
             "icons/app_icon.ico"
@@ -88,6 +98,19 @@
         },
         "windows": {
             "signCommand": "powershell -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 -FilePath %1"
+        },
+        "linux": {
+            "deb": {
+                "depends": [
+                    "libvulkan1",
+                    "libasound2",
+                    "libssl3"
+                ],
+                "recommends": [
+                    "pipewire-bin"
+                ],
+                "section": "sound"
+            }
         }
     }
 }
