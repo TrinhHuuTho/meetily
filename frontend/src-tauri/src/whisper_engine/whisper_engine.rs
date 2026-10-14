@@ -12,7 +12,7 @@ use reqwest::Client;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use crate::config::WHISPER_MODEL_CATALOG;
-use super::acceleration::{whisper_context_acceleration_for, WhisperCompiledBackend, WhisperContextAcceleration};
+use super::acceleration::{gpu_devices, preferred_gpu, whisper_context_acceleration_for, WhisperCompiledBackend, WhisperContextAcceleration};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ModelStatus {
@@ -146,6 +146,7 @@ pub(crate) fn fitted_audio_ctx(duration_seconds: f64) -> Option<i32> {
 /// GPU/flash-attention context parameters for this build and machine
 fn context_params() -> (WhisperContextParameters<'static>, WhisperContextAcceleration) {
     let hardware_profile = crate::audio::HardwareProfile::detect();
+    let gpu = preferred_gpu(gpu_devices());
     let acceleration = whisper_context_acceleration_for(
         WhisperCompiledBackend::current(),
         hardware_profile.gpu_type,
