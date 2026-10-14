@@ -1,152 +1,57 @@
-# Contributing to Meeting Minutes Updates
+# Contributing to TriNote
 
-Thank you for your interest in contributing to Meetily! This document provides guidelines and instructions for contributing to this project.
+Thanks for helping improve TriNote. Bug reports, fixes, translations of the docs and new features are all welcome.
 
-## Development Workflow
+## Reporting bugs and requesting features
 
-### Branch Strategy
+Open an issue at <https://github.com/TrinhHuuTho/trinote/issues>. For bugs, please include:
 
-- `main` - Production branch
-- `devtest` - Development and testing branch
-- Feature branches should be created from `devtest`
+- TriNote version and how you installed it (`.deb`, AppImage or source build)
+- Your Linux distribution and GPU
+- What you did, what you expected and what happened
+- The log, if you can: start TriNote from a terminal with `RUST_LOG=info trinote` and copy the output around the problem
 
-### Getting Started
+Please remove anything private from logs and screenshots first; transcripts can end up in them.
 
-1. Fork the repository
-2. Clone your fork:
+Problems that also exist in [Meetily](https://github.com/Zackriya-Solutions/meeting-minutes) can be reported there as well.
+
+## Making changes
+
+1. Fork the repository and clone your fork.
+2. Set up the build as described in [docs/building_in_linux.md](docs/building_in_linux.md).
+3. Create a branch from `main`:
+   - `fix/<short-name>` for bug fixes
+   - `enhance/<short-name>` for features and improvements
+4. Make your change, with tests where it makes sense.
+5. Check it:
+
    ```bash
-   git clone https://github.com/YOUR_USERNAME/meeting-minutes.git
-   ```
-3. Add the original repository as upstream:
-   ```bash
-   git remote add upstream https://github.com/Zackriya-Solutions/meeting-minutes.git
-   ```
-4. Create a new branch from `devtest`:
-   ```bash
-   git checkout devtest
-   git pull upstream devtest
-   git checkout -b feature/your-feature-name
+   cd frontend && ./node_modules/.bin/tsc --noEmit
+   cd src-tauri && cargo test --features vulkan --lib
    ```
 
-### Development Process
+6. Update the docs your change affects: the README, `docs/`, and [CHANGELOG.md](CHANGELOG.md) under the next version.
+7. Open a pull request against `main` and describe what changed and how you tested it.
 
-1. Always start your work from the `devtest` branch
-2. Create a new branch for each feature/fix
-3. Make your changes
-4. Write or update tests as needed
-5. Ensure all tests pass
-6. Update documentation if necessary
+## Code guidelines
 
-### Issue Creation
+- Follow the style of the surrounding code.
+- New app behavior belongs in the Rust core (`frontend/src-tauri/src`), exposed through Tauri commands and events. [docs/architecture.md](docs/architecture.md) describes the structure.
+- Keep TriNote local-first. Do not add analytics, tracking, or network calls the user did not ask for. A feature that sends data off the computer must be opt-in and documented in [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
+- For speech recognition or GPU changes, run the benchmarks described in [docs/GPU_ACCELERATION.md](docs/GPU_ACCELERATION.md) and put the numbers in the pull request.
 
-Before starting work on a new feature or bug fix:
+## Commit messages
 
-1. Check if an issue already exists
-2. If not, create a new issue with:
-   - Clear title
-   - Detailed description
-   - Steps to reproduce (for bugs)
-   - Expected behavior
-   - Screenshots (if applicable)
-   - Labels (bug, enhancement, etc.)
+TriNote uses [Conventional Commits](https://www.conventionalcommits.org/):
 
-### Pull Request Process
+```text
+<type>(<scope>): <summary>
 
-1. Create a PR from your feature branch to `devtest`
-2. Link the PR to the related issue using the issue number (e.g., "Fixes #123")
-3. Fill out the PR template completely
-4. Ensure CI checks pass
-5. Request review from at least one maintainer
-6. Address any review comments
-7. Once approved, the PR will be merged into `devtest`
-
-### PR Template
-
-```markdown
-## Description
-[Describe your changes here]
-
-## Related Issue
-[Link to the issue this PR addresses]
-
-## Type of Change
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Documentation update
-- [ ] Performance improvement
-- [ ] Code refactoring
-- [ ] Other (please describe)
-
-## Testing
-- [ ] Unit tests added/updated
-- [ ] Manual testing performed
-- [ ] All tests pass
-
-## Documentation
-- [ ] Documentation updated
-- [ ] No documentation needed
-
-## Checklist
-- [ ] Code follows project style
-- [ ] Self-reviewed the code
-- [ ] Added comments for complex code
-- [ ] Updated README if needed
+<why the change is needed and what it does>
 ```
 
-## Code Style
-
-- Follow the existing code style
-- Use meaningful variable and function names
-- Add comments for complex logic
-- Keep functions small and focused
-- Write clear commit messages
-
-## Commit Message Format
-
-```
-<type>(<scope>): <subject>
-
-<body>
-
-<footer>
-```
-
-Types:
-- feat: New feature
-- fix: Bug fix
-- docs: Documentation changes
-- style: Code style changes
-- refactor: Code refactoring
-- test: Adding/updating tests
-- chore: Maintenance tasks
-
-## Testing
-
-- Write unit tests for new features
-- Update existing tests when modifying code
-- Ensure all tests pass before submitting PR
-- Include integration tests for complex features
-
-## Documentation
-
-- Update documentation for new features
-- Keep README up to date
-- Document API changes
-- Add comments for complex code
-
-## Review Process
-
-1. PRs require at least one review
-2. Address all review comments
-3. Keep the PR up to date with `devtest`
-4. Squash commits if requested
-
-## Getting Help
-
-- Create an issue for questions
-- Join our community chat
-- Contact maintainers
+Common types are `feat`, `fix`, `perf`, `docs`, `test` and `chore`, for example `fix(audio): capture Linux system audio through PipeWire`.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the project's MIT License. 
+By contributing, you agree that your contributions are licensed under the [MIT License](LICENSE.md).

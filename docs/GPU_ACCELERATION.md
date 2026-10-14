@@ -80,7 +80,7 @@ With 4 GB of VRAM most of the model stays on the CPU, so a bigger GPU helps summ
 
 | Your machine | Speech recognition | Summaries |
 | --- | --- | --- |
-| Discrete GPU with 4 GB+ (NVIDIA, AMD) | Whisper `large-v3-turbo` plus `base` for EN/VI/ZH meetings; Parakeet for English-only | Built-in Qwen 3.5 4B |
+| Discrete GPU with 4 GB+ (NVIDIA, AMD) | Whisper `large-v3-turbo-q5_0` plus `base` for EN/VI/ZH meetings; Parakeet for English-only | Built-in Qwen 3.5 4B |
 | Integrated GPU or CPU only, 6+ cores | Parakeet for English and European languages; Whisper `small-q5_1` for Vietnamese or Chinese | Built-in Qwen 3.5 2B, or a cloud provider |
 | Older or 4-core CPU | Parakeet; Whisper `base` for Vietnamese or Chinese | A cloud provider (OpenAI, Anthropic, Groq, OpenRouter) or Ollama on another computer |
 
