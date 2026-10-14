@@ -55,7 +55,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # Cache downloaded crates only: release binaries are always built from scratch,
+      # so no build from an older run (or with other flags) can end up in a package
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -73,6 +77,9 @@ jobs:
 
       - name: Check that Whisper was built without CPU-specific instructions
         run: node .github/verify-portable-ggml.cjs target/release
+
+      - name: Name the Debian package "trinote"
+        run: bash .github/scripts/rename-deb-package.sh target/release/bundle/deb/*.deb
 
       - name: Collect packages and checksums
         run: |
