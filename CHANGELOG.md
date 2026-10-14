@@ -12,7 +12,7 @@ TriNote is a fork of [Meetily](https://github.com/Zackriya-Solutions/meeting-min
 - Fast language detection with the small Whisper `base` model, with a one-click download from the language settings.
 - **PDF export** of meeting notes: the summary plus a timestamped transcript. Noto Sans and Noto Sans SC are bundled, so Vietnamese diacritics and Chinese characters render without system fonts.
 - **Linux system audio** through PipeWire (`pw-record`), so the other participants of a call are recorded, not only your microphone.
-- **Automatic GPU selection** for speech recognition: the discrete GPU first, then an integrated GPU, then the CPU. Built-in summaries size their GPU offload from the free GPU memory, including on Vulkan.
+- **Automatic GPU selection** for speech recognition: the discrete GPU first, then an integrated GPU, then the CPU. Built-in summaries size their offload to a discrete GPU from its free memory, including on Vulkan, and run on the CPU when there is only an integrated GPU.
 - **Use GPU acceleration** switch in Settings → General, showing the GPU in use.
 - Recovery from GPU crashes: after a crash on the GPU, speech recognition or summaries switch to the CPU, the user is told, and **Try the GPU again** turns the GPU back on.
 - New name, icon and About page.
