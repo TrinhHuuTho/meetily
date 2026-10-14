@@ -360,7 +360,14 @@ impl ModelState {
         let gpu_layers = get_default_gpu_layers(&model_path, context_size);
 
         // Configure model parameters with GPU offload
-        let model_params = LlamaModelParams::default().with_n_gpu_layers(gpu_layers);
+        let mut model_params = LlamaModelParams::default().with_n_gpu_layers(gpu_layers);
+        if std::env::var_os("LLAMA_CPU_ONLY").is_some() {
+            // Give llama.cpp no GPU devices at all: with only n_gpu_layers = 0 it still
+            // offloads large prompt batches to the GPU
+            model_params = model_params
+                .with_devices(&[])
+                .context("failed to select CPU-only devices")?;
+        }
         let model_params = pin!(model_params);
 
         let model = LlamaModel::load_from_file(&self.backend, model_path.clone(), &model_params)
