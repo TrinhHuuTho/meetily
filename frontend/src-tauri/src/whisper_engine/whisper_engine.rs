@@ -149,11 +149,13 @@ fn context_params() -> (WhisperContextParameters<'static>, WhisperContextAcceler
     let acceleration = whisper_context_acceleration_for(
         WhisperCompiledBackend::current(),
         hardware_profile.gpu_type,
+        gpu,
+        false,
     );
     log::info!(
-        "Whisper acceleration decision: compiled_backend={} runtime_detected_gpu={:?} use_gpu={} flash_attn={} gpu_device={}",
+        "Whisper acceleration decision: compiled_backend={} gpu={} use_gpu={} flash_attn={} gpu_device={}",
         acceleration.compiled_backend.as_str(),
-        acceleration.runtime_detected_gpu,
+        gpu.map_or("none", |device| device.description.as_str()),
         acceleration.use_gpu,
         acceleration.flash_attn,
         acceleration.gpu_device,
@@ -422,7 +424,7 @@ impl WhisperEngine {
 
                 let ctx = {
                     // Load whisper context with hardware-optimized parameters
-                    WhisperContext::new_with_params(&model_info.path.to_string_lossy(), context_param)
+                    WhisperContext::new_with_params(&model_info.path, context_param)
                         .map_err(|e| anyhow!("Failed to load model {}: {}", model_name, e))?
                 };
 
@@ -671,7 +673,7 @@ impl WhisperEngine {
             return;
         }
         let (params, _) = context_params();
-        match WhisperContext::new_with_params(&path.to_string_lossy(), params) {
+        match WhisperContext::new_with_params(&path, params) {
             Ok(ctx) => {
                 log::info!("Loaded language detector model: {}", name);
                 *detector = Some((name, ctx));
@@ -722,7 +724,7 @@ impl WhisperEngine {
 
         // Additional suppression to reduce C library verbosity
         params.set_suppress_blank(true);
-        params.set_suppress_non_speech_tokens(true);
+        params.set_suppress_nst(true);
         params.set_temperature(adaptive_config.temperature);
         params.set_max_initial_ts(1.0);
         params.set_entropy_thold(2.4);
@@ -745,15 +747,11 @@ impl WhisperEngine {
 
         let mut state = ctx.create_state()?;
         state.full(params, &audio_data)?;
-        let num_segments = state.full_n_segments()?;
+        let num_segments = state.full_n_segments();
 
         // Report the language whisper actually decoded with (auto-detected or forced)
         let detected_language = language_code.or_else(|| {
-            state
-                .full_lang_id_from_state()
-                .ok()
-                .and_then(|id| whisper_rs::get_lang_str(id))
-                .map(str::to_string)
+            whisper_rs::get_lang_str(state.full_lang_id_from_state()).map(str::to_string)
         });
 
         let mut result = String::new();
@@ -761,9 +759,9 @@ impl WhisperEngine {
         let mut segment_count = 0;
 
         for i in 0..num_segments {
-            let segment_text = match state.full_get_segment_text_lossy(i) {
-                Ok(text) => text,
-                Err(_) => continue,
+            let segment_text = match state.get_segment(i).map(|segment| segment.to_str_lossy()) {
+                Some(Ok(text)) => text.into_owned(),
+                _ => continue,
             };
 
             // Calculate confidence based on segment length and duration (simplified approach)
