@@ -130,14 +130,14 @@ BINARIES_DIR="$FRONTEND_DIR/src-tauri/binaries"
 mkdir -p "$BINARIES_DIR"
 
 # Clean old binaries
-find "$BINARIES_DIR" -name "llama-helper*" -delete
+find "$BINARIES_DIR" -name "*llama-helper*" -delete
 
 BASE_BINARY="llama-helper"
-SIDECAR_BINARY="llama-helper-$TARGET_TRIPLE"
+SIDECAR_BINARY="trinote-llama-helper-$TARGET_TRIPLE"
 
 if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
     BASE_BINARY="llama-helper.exe"
-    SIDECAR_BINARY="llama-helper-$TARGET_TRIPLE.exe"
+    SIDECAR_BINARY="trinote-llama-helper-$TARGET_TRIPLE.exe"
 fi
 
 # The binary is in the workspace target directory, which is one level up from frontend

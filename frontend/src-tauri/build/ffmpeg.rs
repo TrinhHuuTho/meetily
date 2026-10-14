@@ -12,10 +12,12 @@ pub fn ensure_ffmpeg_binary() {
 
     println!("cargo:warning=🎬 Checking FFmpeg binary for target: {}", target);
 
+    // Bundled as /usr/bin/trinote-ffmpeg (Tauri drops the triple), so it never
+    // clashes with the distribution's ffmpeg package
     let binary_name = if target.contains("windows") {
-        format!("ffmpeg-{}.exe", target)
+        format!("trinote-ffmpeg-{}.exe", target)
     } else {
-        format!("ffmpeg-{}", target)
+        format!("trinote-ffmpeg-{}", target)
     };
 
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")

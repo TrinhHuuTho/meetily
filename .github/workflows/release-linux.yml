@@ -69,7 +69,7 @@ jobs:
         run: |
           cargo build --release -p llama-helper --features vulkan
           mkdir -p frontend/src-tauri/binaries
-          cp target/release/llama-helper frontend/src-tauri/binaries/llama-helper-x86_64-unknown-linux-gnu
+          cp target/release/llama-helper frontend/src-tauri/binaries/trinote-llama-helper-x86_64-unknown-linux-gnu
 
       - name: Build TriNote (Vulkan)
         working-directory: frontend

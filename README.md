@@ -43,6 +43,8 @@ chmod +x TriNote_1.0.0_amd64.AppImage
 ./TriNote_1.0.0_amd64.AppImage
 ```
 
+The AppImage needs FUSE 2 (`sudo apt install libfuse2t64`, or `libfuse2` on Ubuntu 22.04). Without it, start it with `./TriNote_1.0.0_amd64.AppImage --appimage-extract-and-run`. To uninstall the package, run `sudo apt remove trinote`; your meetings stay in the folders listed in the [privacy policy](PRIVACY_POLICY.md).
+
 To record your computer's audio, TriNote needs PipeWire's `pw-record` (package `pipewire-bin`), which Ubuntu 22.10 and newer use by default. For GPU acceleration you need a Vulkan driver: NVIDIA's proprietary driver, or `mesa-vulkan-drivers` for AMD and Intel.
 
 ## Getting started
