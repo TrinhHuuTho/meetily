@@ -73,6 +73,7 @@ Recording a call needs both the microphone and what the other side says. On Linu
 - Device selection (`9508fad`): whisper.cpp 1.8 uses the first GPU it lists, which on hybrid laptops is the integrated one. TriNote now picks the discrete GPU first, then the integrated GPU, then the CPU.
 - Crash recovery (`7de64dd`): a GPU fault aborts the process from native code, where Rust cannot catch it. While speech recognition runs on the GPU, a marker file exists; finding it at startup means the last run died on the GPU, so speech recognition switches to the CPU and the user is told. The summary engine runs in its own process, so a crash there is retried on the CPU straight away. A settings switch turns the GPU off or back on.
 - Summaries (`ff16c66`, `4e0e8bb`): GPU offload is sized from the free Vulkan memory instead of an assumed 4 GB, and CPU-only mode gives llama.cpp no GPU devices at all. With only zero GPU layers, llama.cpp still sent prompt processing to the GPU.
+- Integrated GPUs are not used for summaries. Running llama.cpp on the AMD Renoir integrated GPU froze the whole computer, which no in-app fallback can recover from, so machines without a discrete GPU summarize on the CPU (about 3.4 minutes for a long meeting).
 - The CPU fallback uses every physical core (`a65406d`).
 
 **Results** on a GTX 1650 laptop (Ryzen 5 5500U), EN/VI/ZH mode:

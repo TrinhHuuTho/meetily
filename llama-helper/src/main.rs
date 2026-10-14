@@ -160,21 +160,32 @@ fn detect_vram_gb() -> f32 {
     }
 }
 
-/// Free memory of the GPU llama.cpp will use. Like llama.cpp's own device selection,
-/// integrated GPUs only count when there is no discrete GPU.
-fn detect_backend_vram() -> Option<f32> {
-    use llama_cpp_2::{list_llama_ggml_backend_devices, LlamaBackendDeviceType};
+/// GPUs summaries may run on. Integrated GPUs are skipped on Vulkan: llama.cpp on an
+/// AMD Renoir integrated GPU froze the whole system in testing, so machines with only
+/// an integrated GPU summarize on the CPU. (Like llama.cpp's own device selection,
+/// integrated GPUs would only be used when there is no discrete GPU anyway.)
+fn usable_gpus() -> Vec<llama_cpp_2::LlamaBackendDevice> {
+    use llama_cpp_2::LlamaBackendDeviceType;
 
-    let devices = list_llama_ggml_backend_devices();
-    let most_free = |device_type| {
-        devices
-            .iter()
-            .filter(|device| device.device_type == device_type)
-            .map(|device| device.memory_free)
-            .max()
-    };
-    let free = most_free(LlamaBackendDeviceType::Gpu)
-        .or_else(|| most_free(LlamaBackendDeviceType::IntegratedGpu))?;
+    llama_cpp_2::list_llama_ggml_backend_devices()
+        .into_iter()
+        .filter(|device| match device.device_type {
+            LlamaBackendDeviceType::Gpu => true,
+            LlamaBackendDeviceType::IntegratedGpu => device.backend != "Vulkan",
+            _ => false,
+        })
+        .collect()
+}
+
+/// Whether to keep llama.cpp off every GPU: the user chose CPU only, the GPU crashed
+/// before (TriNote sets LLAMA_CPU_ONLY), or there is no usable GPU
+fn cpu_only() -> bool {
+    std::env::var_os("LLAMA_CPU_ONLY").is_some() || usable_gpus().is_empty()
+}
+
+/// Free memory of the GPU llama.cpp will use
+fn detect_backend_vram() -> Option<f32> {
+    let free = usable_gpus().iter().map(|device| device.memory_free).max()?;
     Some(free as f32 / (1024.0 * 1024.0 * 1024.0))
 }
 
@@ -285,9 +296,8 @@ fn calculate_gpu_layers(
 
 /// Get default GPU layer count with smart detection
 fn get_default_gpu_layers(model_path: &PathBuf, context_size: u32) -> u32 {
-    // Set by TriNote when the user chose CPU only or the GPU crashed before
-    if std::env::var_os("LLAMA_CPU_ONLY").is_some() {
-        eprintln!("LLAMA_CPU_ONLY is set, running on the CPU");
+    if cpu_only() {
+        eprintln!("Running on the CPU (LLAMA_CPU_ONLY is set or no usable GPU)");
         return 0;
     }
     let vram = detect_vram_gb();
@@ -361,7 +371,7 @@ impl ModelState {
 
         // Configure model parameters with GPU offload
         let mut model_params = LlamaModelParams::default().with_n_gpu_layers(gpu_layers);
-        if std::env::var_os("LLAMA_CPU_ONLY").is_some() {
+        if cpu_only() {
             // Give llama.cpp no GPU devices at all: with only n_gpu_layers = 0 it still
             // offloads large prompt batches to the GPU
             model_params = model_params

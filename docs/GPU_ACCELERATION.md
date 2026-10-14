@@ -25,7 +25,7 @@ Whisper acceleration decision: compiled_backend=Vulkan gpu=NVIDIA GeForce GTX 16
 
 When Whisper runs on the CPU it uses every physical core (up to 8); on the GPU it uses 4 CPU threads.
 
-**Summaries (built-in model).** `llama-helper` puts as many model layers on the GPU as fit in its free memory and runs the rest on the CPU. Like llama.cpp itself, it only uses an integrated GPU when there is no discrete one.
+**Summaries (built-in model).** `llama-helper` puts as many model layers on a discrete GPU as fit in its free memory and runs the rest on the CPU. It does not use integrated GPUs: in testing, llama.cpp on an AMD Radeon integrated GPU froze the whole computer, so machines without a discrete GPU summarize on the CPU.
 
 **Parakeet** always runs on the CPU (ONNX Runtime) and is fast enough there.
 
