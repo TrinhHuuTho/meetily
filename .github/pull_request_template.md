@@ -25,8 +25,8 @@
 - [ ] Code follows project style
 - [ ] Self-reviewed the code
 - [ ] Added comments for complex code
-- [ ] Updated README if needed
-- [ ] Branch is up to date with devtest
+- [ ] Updated README, docs/ and CHANGELOG.md if needed
+- [ ] Branch is up to date with main
 - [ ] No merge conflicts
 
 ## Screenshots (if applicable)
