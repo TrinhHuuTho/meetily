@@ -12,6 +12,7 @@ use reqwest::Client;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use crate::config::WHISPER_MODEL_CATALOG;
+use crate::hardware_acceleration::{self, GpuEngine};
 use super::acceleration::{gpu_devices, preferred_gpu, whisper_context_acceleration_for, WhisperCompiledBackend, WhisperContextAcceleration};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,7 +152,7 @@ fn context_params() -> (WhisperContextParameters<'static>, WhisperContextAcceler
         WhisperCompiledBackend::current(),
         hardware_profile.gpu_type,
         gpu,
-        false,
+        !hardware_acceleration::use_gpu(GpuEngine::Transcription),
     );
     log::info!(
         "Whisper acceleration decision: compiled_backend={} gpu={} use_gpu={} flash_attn={} gpu_device={}",
@@ -186,6 +187,8 @@ pub struct WhisperEngine {
     language_detector: Arc<RwLock<Option<(String, WhisperContext)>>>,
     /// Size the encoder context to each segment instead of a padded 30s window
     fit_audio_ctx: Arc<AtomicBool>,
+    /// Whether the loaded model runs on the GPU (inference is then crash-guarded)
+    context_on_gpu: Arc<AtomicBool>,
     // A model remains active until its owning worker has completed cleanup.
     active_downloads: Arc<Mutex<HashMap<String, Arc<ActiveDownload>>>>,
     #[cfg(test)]
@@ -295,6 +298,7 @@ impl WhisperEngine {
             available_models: Arc::new(RwLock::new(HashMap::new())),
             language_detector: Arc::new(RwLock::new(None)),
             fit_audio_ctx: Arc::new(AtomicBool::new(true)),
+            context_on_gpu: Arc::new(AtomicBool::new(false)),
             active_downloads: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(test)]
             download_state_test_hook: std::sync::Mutex::new(None),
@@ -424,12 +428,14 @@ impl WhisperEngine {
                 let (context_param, acceleration) = context_params();
 
                 let ctx = {
+                    let _gpu_scope = acceleration.use_gpu.then(hardware_acceleration::transcription_gpu_scope);
                     // Load whisper context with hardware-optimized parameters
                     WhisperContext::new_with_params(&model_info.path, context_param)
                         .map_err(|e| anyhow!("Failed to load model {}: {}", model_name, e))?
                 };
 
                 // Update current context and model
+                self.context_on_gpu.store(acceleration.use_gpu, Ordering::Relaxed);
                 *self.current_context.write().await = Some(ctx);
                 *self.current_model.write().await = Some(model_name.to_string());
 
@@ -468,6 +474,15 @@ impl WhisperEngine {
         model_name_guard.take();
 
         unloaded
+    }
+
+    /// Reload the current model (the detector reloads lazily) so new acceleration settings apply
+    pub async fn reload_current_model(&self) -> Result<()> {
+        let Some(name) = self.get_current_model().await else {
+            return Ok(());
+        };
+        self.unload_model().await;
+        self.load_model(&name).await
     }
 
     pub async fn get_current_model(&self) -> Option<String> {
@@ -673,7 +688,8 @@ impl WhisperEngine {
         if detector.is_some() {
             return;
         }
-        let (params, _) = context_params();
+        let (params, acceleration) = context_params();
+        let _gpu_scope = acceleration.use_gpu.then(hardware_acceleration::transcription_gpu_scope);
         match WhisperContext::new_with_params(&path, params) {
             Ok(ctx) => {
                 log::info!("Loaded language detector model: {}", name);
@@ -688,6 +704,11 @@ impl WhisperEngine {
         let ctx_lock = self.current_context.read().await;
         let ctx = ctx_lock.as_ref()
             .ok_or_else(|| anyhow!("No model loaded. Please load a model first."))?;
+        // Detection and decoding below are crash-guarded when they run on the GPU
+        let _gpu_scope = self
+            .context_on_gpu
+            .load(Ordering::Relaxed)
+            .then(hardware_acceleration::transcription_gpu_scope);
 
         // Get adaptive configuration based on hardware
         let hardware_profile = crate::audio::HardwareProfile::detect();

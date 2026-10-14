@@ -5,6 +5,7 @@ import { Switch } from "./ui/switch"
 import { FolderOpen } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { useConfig, NotificationSettings } from "@/contexts/ConfigContext"
+import { HardwareAccelerationSettings } from "./HardwareAccelerationSettings"
 
 export function PreferenceSettings() {
   const {
@@ -120,6 +121,8 @@ export function PreferenceSettings() {
           <Switch checked={notificationsEnabledValue} onCheckedChange={setNotificationsEnabled} />
         </div>
       </div>
+
+      <HardwareAccelerationSettings />
 
       {/* Data Storage Locations Section */}
       <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">

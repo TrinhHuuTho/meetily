@@ -202,23 +202,17 @@ pub async fn generate_with_builtin(
 
     log::info!("Sending generation request to sidecar");
 
-    // Race between send_request and cancellation token
-    let response_json = if let Some(token) = cancellation_token {
-        tokio::select! {
-            result = manager.send_request(request_json, timeout) => {
-                result?
-            }
-            _ = token.cancelled() => {
-                log::warn!("Generation cancelled by user, shutting down sidecar");
-                // Shutdown sidecar to stop generation immediately
-                if let Err(e) = manager.shutdown().await {
-                    log::error!("Failed to shutdown sidecar during cancellation: {}", e);
-                }
-                return Err(anyhow!("Generation cancelled by user"));
-            }
+    let response_json = match send_cancellable(&manager, request_json.clone(), timeout, cancellation_token).await {
+        // A GPU driver fault kills llama-helper; finish this summary on the CPU and keep
+        // summaries on the CPU until the user re-enables the GPU in settings
+        Err(e) if manager.gpu_allowed() && manager.exited_unexpectedly().await => {
+            log::error!("llama-helper crashed while using the GPU ({}); retrying on the CPU", e);
+            crate::hardware_acceleration::record_gpu_crash(crate::hardware_acceleration::GpuEngine::Summary);
+            manager.shutdown().await?;
+            manager.ensure_running(model_path.clone()).await?;
+            send_cancellable(&manager, request_json, timeout, cancellation_token).await?
         }
-    } else {
-        manager.send_request(request_json, timeout).await?
+        result => result?,
     };
 
     // Check cancellation before parsing response
@@ -242,6 +236,29 @@ pub async fn generate_with_builtin(
             }
         }
         Response::Error { message } => Err(anyhow!("Sidecar error: {}", message)),
+    }
+}
+
+/// Send a request, stopping the sidecar if the user cancels while it generates
+async fn send_cancellable(
+    manager: &SidecarManager,
+    request_json: String,
+    timeout: Duration,
+    cancellation_token: Option<&CancellationToken>,
+) -> Result<String> {
+    let Some(token) = cancellation_token else {
+        return manager.send_request(request_json, timeout).await;
+    };
+    tokio::select! {
+        result = manager.send_request(request_json, timeout) => result,
+        _ = token.cancelled() => {
+            log::warn!("Generation cancelled by user, shutting down sidecar");
+            // Shutdown sidecar to stop generation immediately
+            if let Err(e) = manager.shutdown().await {
+                log::error!("Failed to shutdown sidecar during cancellation: {}", e);
+            }
+            Err(anyhow!("Generation cancelled by user"))
+        }
     }
 }
 
