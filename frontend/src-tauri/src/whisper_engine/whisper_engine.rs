@@ -171,11 +171,18 @@ fn context_params() -> (WhisperContextParameters<'static>, WhisperContextAcceler
     (params, acceleration)
 }
 
-/// Threads for whisper.cpp CPU work (matches whisper's own default of min(4, cores))
-fn whisper_threads() -> usize {
-    std::thread::available_parallelism()
-        .map(|n| n.get().min(4))
-        .unwrap_or(4)
+/// Threads for whisper.cpp CPU work. With the model on the GPU, whisper's own default of
+/// min(4, cores) is enough; on the CPU every physical core helps (hyperthreads do not)
+fn whisper_threads(on_gpu: bool) -> usize {
+    static PHYSICAL_CORES: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    let logical = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    if on_gpu {
+        return logical.min(4);
+    }
+    PHYSICAL_CORES
+        .get_or_init(|| sysinfo::System::new().physical_core_count())
+        .unwrap_or(logical)
+        .clamp(1, 8)
 }
 
 pub struct WhisperEngine {
@@ -659,7 +666,7 @@ impl WhisperEngine {
         let detector = self.language_detector.read().await;
         let ctx = detector.as_ref().map(|(_, ctx)| ctx).unwrap_or(main_ctx);
 
-        let threads = whisper_threads();
+        let threads = whisper_threads(self.context_on_gpu.load(Ordering::Relaxed));
         let mut state = ctx.create_state()?;
         state.pcm_to_mel(audio, threads)?;
         let (_, probs) = state.lang_detect(0, threads)?;
@@ -727,7 +734,7 @@ impl WhisperEngine {
             beam_size: adaptive_config.beam_size as i32,
             patience: 1.0
         });
-        params.set_n_threads(whisper_threads() as i32);
+        params.set_n_threads(whisper_threads(self.context_on_gpu.load(Ordering::Relaxed)) as i32);
         params.set_language(language_code.as_deref());
         params.set_translate(should_translate);
 
