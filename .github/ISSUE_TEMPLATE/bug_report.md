@@ -21,17 +21,18 @@ assignees: ''
 3. [And so on...]
 
 ## Environment
-- OS: [e.g., macOS, Windows, Linux]
-- Browser: [e.g., Chrome, Firefox, Safari]
-- Version: [e.g., 1.0.0]
-- Node Version: [e.g., 18.0.0]
-- npm/pnpm Version: [e.g., 8.0.0]
+- TriNote version: [e.g., 1.0.0]
+- Installed from: [.deb / AppImage / source build]
+- Linux distribution: [e.g., Ubuntu 24.04]
+- GPU: [e.g., NVIDIA GTX 1650, AMD integrated, none] (Settings → General shows the GPU in use)
+- Transcription engine and model: [e.g., Local Whisper, large-v3-turbo-q5_0]
+- Language mode: [e.g., Auto Detect (English / Vietnamese / Chinese)]
 
 ## Screenshots/Videos
 [If applicable, add screenshots or videos to help explain your problem]
 
-## Error Messages
-[If applicable, paste any error messages you're seeing]
+## Error Messages and Logs
+[Paste error messages. For logs, start TriNote from a terminal with `RUST_LOG=info trinote` and copy the output around the problem. Remove anything private first, such as transcript text.]
 
 ## Additional Context
 [Add any other context about the problem here]
@@ -43,4 +44,4 @@ assignees: ''
 - [ ] I have searched for similar issues
 - [ ] I have provided all required information
 - [ ] I have included screenshots/videos if applicable
-- [ ] I have included error messages if applicable 
+- [ ] I have included error messages or logs if applicable
