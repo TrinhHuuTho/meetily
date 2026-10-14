@@ -1,127 +1,44 @@
-# Meetily Privacy Policy
+# TriNote Privacy Policy
 
-*Last updated: [Current Date]*
+Last updated: 14 October 2026
 
-## Our Privacy-First Commitment
+TriNote records, transcribes and summarizes meetings on your own computer. It has no accounts, no analytics, no crash reporting and no automatic update checks. Your audio and transcripts leave your computer only if you choose a cloud AI provider for summaries.
 
-Meetily is built on the principle that your meeting data should remain private and under your control. This privacy policy explains how we handle data in our open-source meeting assistant.
+## What TriNote stores, and where
 
-## Data Processing Philosophy
+Everything stays on your computer. On Linux the locations are:
 
-### Local-First Processing
-- **Meeting transcription**: Processed entirely on your device using local Whisper models
-- **Audio recordings**: Never transmitted to external servers
-- **Meeting content**: Remains on your infrastructure
-- **AI summaries**: Generated locally or through your chosen LLM provider
+| Data | Location |
+| --- | --- |
+| Recordings (`audio.mp4`, `transcripts.json`, `metadata.json` per meeting) | `~/Documents/trinote-recordings/` by default |
+| Meetings, transcripts, summaries and settings, including any API keys you enter | `~/.local/share/com.trinhhuutho.trinote/meeting_minutes.sqlite` |
+| Downloaded speech and summary models | `~/.local/share/com.trinhhuutho.trinote/models/` |
+| Other app settings, such as GPU acceleration | `~/.local/share/com.trinhhuutho.trinote/` |
+| Notification settings | `~/.config/trinote/` |
+| Custom summary templates | `~/.local/share/TriNote/templates/` |
 
-### Your Data Ownership
-- You own all meeting data, transcripts, and recordings
-- Data is stored locally on your device
-- No vendor lock-in - export your data anytime
-- Complete control over data retention and deletion
+API keys are stored unencrypted in the local database, so anyone who can read your home folder can read them. Use keys you can revoke.
 
-## Usage Analytics
+## When TriNote connects to the internet
 
-### What We Collect
-Usage analytics is optional and off by default. When you choose to enable it, Meetily collects minimal, anonymized usage data:
+1. **Downloading models.** Speech recognition and built-in summary models are downloaded from [Hugging Face](https://huggingface.co) when you download them in onboarding or Settings. Hugging Face sees your IP address and which files you download. No meeting data is sent.
+2. **Cloud AI summaries, only if you choose one.** If you select OpenAI, Anthropic (Claude), Groq, OpenRouter, a custom OpenAI-compatible server, or an Ollama server on another computer, the transcript text and the summary instructions are sent to that service whenever you generate a summary. That provider's privacy policy then applies to what you send. The **Built-in AI** option and an Ollama server on your own computer keep everything local.
+3. **Links you click.** Links such as the source code or the Ollama download page open in your web browser.
 
-**Application Usage:**
-- Feature usage patterns (which tools you use most)
-- Session duration and frequency
-- Performance metrics (transcription success rates, error frequencies)
-- UI interaction patterns (button clicks, navigation flows)
+Speech recognition (Parakeet and Whisper) always runs on your computer. Audio is never uploaded.
 
-**Technical Metrics:**
-- Application version and platform information
-- Error logs and crash reports (anonymized)
-- Performance benchmarks (processing times, resource usage)
+## Recording other people
 
-### What We DON'T Collect
-We never collect:
-- ❌ Meeting content, transcripts, or recordings
-- ❌ Personal information or identifiable data
-- ❌ File names, meeting titles, or metadata
-- ❌ Audio data or voice patterns
-- ❌ Participant names or contact information
-- ❌ LLM conversations or AI-generated content
+TriNote records your microphone and, if you choose, the sound your computer plays, which includes the other participants of a call. Laws on recording conversations differ between countries and regions. Tell participants when you record, and get their consent where the law requires it.
 
-### Why We Collect This Data
-When enabled, analytics helps us with:
-- **Product Quality**: Identifying and fixing bugs that impact user experience
-- **Performance Optimization**: Understanding resource usage and system bottlenecks
-- **Security**: Detecting potential security issues and vulnerabilities
-- **Feature Development**: Making data-driven decisions about new features
-- **Open Source Sustainability**: Ensuring the project meets user needs effectively
+## Deleting your data
 
-### Analytics Implementation
-- **Provider**: PostHog (privacy-focused analytics platform)
-- **Default**: Off by default; analytics starts only after you enable it in settings
-- **Anonymization**: All data linked to generated user IDs only - no personal identification
-- **Data retention**: 12 months maximum, then automatically deleted
-- **Encryption**: All data encrypted in transit using industry-standard protocols
-- **Location**: Data processed in accordance with PostHog's privacy policy
-- **Access Control**: Strictly limited to core development team members
+Delete a meeting in the app to remove it from the database. The recording folder for that meeting stays on disk, so delete it as well if you want the audio gone. Uninstalling TriNote does not delete your data. To remove everything, delete the folders listed above.
 
-## Third-Party Services
+## Changes to this policy
 
-### LLM Providers (Optional)
-If you choose to use external LLM providers:
-- **Anthropic Claude**: Subject to Anthropic's privacy policy
-- **Groq**: Subject to Groq's privacy policy
-- **Local Ollama**: Processed entirely on your device
+Changes to this policy are made in the [TriNote repository](https://github.com/TrinhHuuTho/trinote) and mentioned in [CHANGELOG.md](CHANGELOG.md).
 
-### Analytics Service (Optional)
-- **PostHog**: Used for usage analytics when enabled
-- **Data**: Only anonymized usage patterns, no meeting content
-- **Control**: Completely optional, off by default, and user-controlled
+## Contact
 
-## Your Privacy Rights
-
-### Data Control
-- **Access**: View all data stored locally on your device
-- **Export**: Export your data in standard formats
-- **Delete**: Remove all data from your device
-
-
-### Analytics Transparency
-- **Open source**: Full analytics implementation available for review in our source code
-- **Opt-in**: New and existing installs have analytics disabled until you turn it on
-- **Questions**: Contact us for any analytics-related concerns
-
-## Data Security
-
-### Local Security
-- Data encrypted at rest using your device's security features
-- No transmission of sensitive meeting data
-- Standard file system permissions protect your data
-
-### Open Source Transparency
-- Full source code available for security review
-- Community-audited privacy implementations
-- No hidden data collection or tracking
-
-## Changes to This Policy
-
-We will notify users of any material changes to this privacy policy through:
-- Updates to this document in our GitHub repository
-- Release notes for application updates
-- In-app notifications for significant privacy changes
-
-## Contact Us
-
-For privacy-related questions or concerns:
-- **GitHub Issues**: [Create an issue](https://github.com/Zackriya-Solutions/meeting-minutes/issues)
-- **Email**: [Contact form](https://www.zackriya.com/service-interest-form/)
-- **Community**: [Discord](https://discord.gg/crRymMQBFH)
-
-## Open Source Commitment
-
-As an open-source project under MIT license, you can:
-- Review our complete privacy implementation
-- Modify data handling to meet your requirements
-- Deploy entirely on your own infrastructure
-- Contribute to privacy improvements
-
----
-
-*This privacy policy applies to Meetily v0.0.5 and later versions. For enterprise deployments, additional privacy controls may be available.*
+Questions about privacy: open an issue at <https://github.com/TrinhHuuTho/trinote/issues>.
