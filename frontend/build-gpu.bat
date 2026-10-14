@@ -163,10 +163,10 @@ set "BINARIES_DIR=src-tauri\binaries"
 if not exist "%BINARIES_DIR%" mkdir "%BINARIES_DIR%"
 
 REM Clean old binaries
-del /q "%BINARIES_DIR%\llama-helper*" 2>nul
+del /q "%BINARIES_DIR%\*llama-helper*" 2>nul
 
 set "BASE_BINARY=llama-helper.exe"
-set "SIDECAR_BINARY=llama-helper-!TARGET_TRIPLE!.exe"
+set "SIDECAR_BINARY=trinote-llama-helper-!TARGET_TRIPLE!.exe"
 set "SRC_PATH=..\target\release\%BASE_BINARY%"
 set "DEST_PATH=%BINARIES_DIR%\%SIDECAR_BINARY%"
 

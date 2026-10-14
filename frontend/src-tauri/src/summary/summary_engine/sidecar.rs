@@ -17,6 +17,9 @@ use std::os::windows::process::CommandExt;
 
 use super::models;
 
+/// Sidecar file name, from `binaries/trinote-llama-helper-<target triple>` in the app
+const HELPER_NAME: &str = "trinote-llama-helper";
+
 // ============================================================================
 // Sidecar State Management
 // ============================================================================
@@ -108,7 +111,8 @@ impl SidecarManager {
         })
     }
 
-    /// Resolve the path to llama-helper binary
+    /// Resolve the path to llama-helper binary. It is bundled as `trinote-llama-helper`:
+    /// a plain `llama-helper` in /usr/bin can belong to another package (Meetily's).
     fn resolve_helper_binary() -> Result<PathBuf> {
         // 1. Check environment variable (dev mode or manual override)
         if let Ok(env_path) = std::env::var("TRINOTE_LLAMA_HELPER") {
@@ -121,121 +125,29 @@ impl SidecarManager {
             }
         }
 
-        // In production, Tauri bundles the binary with target triple suffix
-        // 2. Check relative to current executable (most reliable for AppImage/bundled apps)
+        // 2. Next to the app binary, where Tauri puts sidecars (without the target
+        //    triple) in installed packages, the AppImage and `tauri dev`
+        let file_name = format!("{}{}", HELPER_NAME, std::env::consts::EXE_SUFFIX);
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
-                log::info!("Searching for llama-helper relative to executable: {}", exe_dir.display());
-                
-                // Get the target triple (same logic as before)
-                let target_triple = std::env::var("TARGET")
-                    .unwrap_or_else(|_| {
-                        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-                        { "x86_64-unknown-linux-gnu".to_string() }
-                        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-                        { "aarch64-unknown-linux-gnu".to_string() }
-                        #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-                        { "x86_64-apple-darwin".to_string() }
-                        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-                        { "aarch64-apple-darwin".to_string() }
-                        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-                        { "x86_64-pc-windows-msvc".to_string() }
-                        #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
-                        { "aarch64-pc-windows-msvc".to_string() }
-                        #[cfg(not(any(
-                            all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")),
-                            all(target_os = "macos", any(target_arch = "x86_64", target_arch = "aarch64")),
-                            all(target_os = "windows", any(target_arch = "x86_64", target_arch = "aarch64"))
-                        )))]
-                        { "unknown".to_string() }
-                    });
-
-                let binary_name = if cfg!(windows) {
-                    format!("llama-helper-{}.exe", target_triple)
-                } else {
-                    format!("llama-helper-{}", target_triple)
-                };
-
-                // Try exact match in exe dir
-                let bundled = exe_dir.join(&binary_name);
+                let bundled = exe_dir.join(&file_name);
                 if bundled.exists() {
-                    log::info!("Found exact match next to executable: {}", bundled.display());
+                    log::info!("Found llama-helper next to executable: {}", bundled.display());
                     return Ok(bundled);
                 }
-
-                // Fuzzy match in exe dir
-                log::info!("Attempting fuzzy match in exe dir: {}", exe_dir.display());
-                if let Ok(entries) = std::fs::read_dir(exe_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                            if name.starts_with("llama-helper") && !name.ends_with(".d") {
-                                log::info!("Found fuzzy match next to executable: {}", path.display());
-                                return Ok(path);
-                            }
-                        }
-                    }
-                }
             }
         }
 
-        // 3. Check bundled resources (RESOURCE_DIR) - Fallback
+        // 3. Bundled resources
         if let Ok(resource_dir) = std::env::var("RESOURCE_DIR") {
-            log::info!("Searching for llama-helper in RESOURCE_DIR: {}", resource_dir);
-            let resource_path = PathBuf::from(&resource_dir);
-             // Get the target triple again (or we could have shared it, but code duplication is safer for this tool usage)
-            let target_triple = std::env::var("TARGET")
-                .unwrap_or_else(|_| {
-                     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-                    { "x86_64-unknown-linux-gnu".to_string() }
-                    // ... (abbreviated for brevity in thought, but must be full in tool)
-                     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-                    { "aarch64-unknown-linux-gnu".to_string() }
-                    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-                    { "x86_64-apple-darwin".to_string() }
-                    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-                    { "aarch64-apple-darwin".to_string() }
-                    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-                    { "x86_64-pc-windows-msvc".to_string() }
-                    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
-                    { "aarch64-pc-windows-msvc".to_string() }
-                    #[cfg(not(any(
-                        all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")),
-                        all(target_os = "macos", any(target_arch = "x86_64", target_arch = "aarch64")),
-                        all(target_os = "windows", any(target_arch = "x86_64", target_arch = "aarch64"))
-                    )))]
-                    { "unknown".to_string() }
-                });
-
-            let binary_name = if cfg!(windows) {
-                format!("llama-helper-{}.exe", target_triple)
-            } else {
-                format!("llama-helper-{}", target_triple)
-            };
-
-            let bundled = resource_path.join(&binary_name);
+            let bundled = PathBuf::from(resource_dir).join(&file_name);
             if bundled.exists() {
-                log::info!("Found exact match in RESOURCE_DIR: {}", bundled.display());
+                log::info!("Found llama-helper in RESOURCE_DIR: {}", bundled.display());
                 return Ok(bundled);
             }
-
-            // Fuzzy match in RESOURCE_DIR
-            if let Ok(entries) = std::fs::read_dir(&resource_path) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if name.starts_with("llama-helper") && !name.ends_with(".d") {
-                            log::info!("Found fuzzy match in RESOURCE_DIR: {}", path.display());
-                            return Ok(path);
-                        }
-                    }
-                }
-            }
-        } else {
-            log::warn!("RESOURCE_DIR environment variable not set");
         }
 
-        // 3. Fallback for dev: try relative paths from workspace (no target triple in dev builds)
+        // 4. Fallback for dev: the workspace build output
         if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
             let project_root = PathBuf::from(&manifest_dir)
                 .parent()

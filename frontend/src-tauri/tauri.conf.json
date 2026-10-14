@@ -88,8 +88,8 @@
             "templates/*.json"
         ],
         "externalBin": [
-            "binaries/llama-helper",
-            "binaries/ffmpeg"
+            "binaries/trinote-llama-helper",
+            "binaries/trinote-ffmpeg"
         ],
         "macOS": {
             "entitlements": "entitlements.plist",

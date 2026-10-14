@@ -15,6 +15,14 @@ const EXECUTABLE_NAME: &str = "ffmpeg";
 #[cfg(windows)]
 const EXECUTABLE_NAME: &str = "ffmpeg.exe";
 
+/// The FFmpeg bundled with TriNote, from `binaries/trinote-ffmpeg-<target triple>`. The
+/// prefix keeps it from clashing with the distribution's /usr/bin/ffmpeg.
+#[cfg(not(windows))]
+const BUNDLED_EXECUTABLE_NAME: &str = "trinote-ffmpeg";
+
+#[cfg(windows)]
+const BUNDLED_EXECUTABLE_NAME: &str = "trinote-ffmpeg.exe";
+
 static FFMPEG_PATH: Lazy<Option<PathBuf>> = Lazy::new(find_ffmpeg_path_internal);
 
 pub fn find_ffmpeg_path() -> Option<PathBuf> {
@@ -29,7 +37,7 @@ fn find_ffmpeg_path_internal() -> Option<PathBuf> {
     // ============================================================
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_folder) = exe_path.parent() {
-            let bundled = exe_folder.join(EXECUTABLE_NAME);
+            let bundled = exe_folder.join(BUNDLED_EXECUTABLE_NAME);
             if bundled.exists() && bundled.is_file() {
                 debug!("Found bundled ffmpeg: {:?}", bundled);
                 return Some(bundled);
