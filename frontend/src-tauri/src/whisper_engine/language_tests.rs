@@ -161,6 +161,54 @@ async fn bench_language_modes() {
     }
 }
 
+/// Print the detector's en/vi/zh probabilities per segment on GPU and CPU, to see how close
+/// detection decisions are. Same env vars as `bench_language_modes`; set
+/// TRINOTE_BENCH_DETECTOR to pick the detector model file (default ggml-base.bin).
+#[test]
+#[ignore]
+fn bench_language_detection_margins() {
+    use std::path::PathBuf;
+    use whisper_rs::{WhisperContext, WhisperContextParameters};
+
+    let models_dir = PathBuf::from(std::env::var("TRINOTE_MODELS_DIR").expect("TRINOTE_MODELS_DIR"));
+    let samples_dir = PathBuf::from(std::env::var("TRINOTE_BENCH_SAMPLES").expect("TRINOTE_BENCH_SAMPLES"));
+    let detector = std::env::var("TRINOTE_BENCH_DETECTOR").unwrap_or_else(|_| "ggml-base.bin".into());
+    let manifest: Vec<serde_json::Value> =
+        serde_json::from_str(&std::fs::read_to_string(samples_dir.join("manifest.json")).unwrap()).unwrap();
+
+    let gpu = super::acceleration::preferred_gpu(super::acceleration::gpu_devices());
+    let contexts: Vec<(&str, WhisperContext)> = [("gpu", true), ("cpu", false)]
+        .into_iter()
+        .map(|(label, use_gpu)| {
+            let params = WhisperContextParameters {
+                use_gpu,
+                gpu_device: gpu.map_or(0, |d| d.index),
+                flash_attn: false,
+                ..Default::default()
+            };
+            (label, WhisperContext::new_with_params(models_dir.join(&detector), params).unwrap())
+        })
+        .collect();
+
+    let ids: Vec<(String, usize)> = ["en", "vi", "zh"]
+        .iter()
+        .map(|c| (c.to_string(), whisper_rs::get_lang_id(c).unwrap() as usize))
+        .collect();
+    println!("\n{:<12} {:<4} {:>22} {:>22}", "file", "exp", "gpu en/vi/zh", "cpu en/vi/zh");
+    for m in &manifest {
+        let file = m["file"].as_str().unwrap();
+        let audio = read_wav_16k_mono(&samples_dir.join(file));
+        let mut cols = Vec::new();
+        for (_, ctx) in &contexts {
+            let mut state = ctx.create_state().unwrap();
+            state.pcm_to_mel(&audio, 4).unwrap();
+            let (_, probs) = state.lang_detect(0, 4).unwrap();
+            cols.push(ids.iter().map(|(_, id)| format!("{:.2}", probs[*id])).collect::<Vec<_>>().join("/"));
+        }
+        println!("{:<12} {:<4} {:>22} {:>22}", file, m["lang"].as_str().unwrap(), cols[0], cols[1]);
+    }
+}
+
 /// Bag-of-words overlap (characters for CJK) between two transcripts, 0..1
 fn word_similarity(a: &str, b: &str) -> f64 {
     use std::collections::HashMap;
