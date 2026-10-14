@@ -2,7 +2,7 @@
 name = "trinote"
 version = "1.0.0"
 description = "Private, on-device meeting notes for English, Vietnamese and Chinese"
-authors = ["Trinh Huu Tho", "Sujith S"]
+authors = ["Trinh Huu Tho"]
 license = "MIT"
 repository = "https://github.com/TrinhHuuTho/trinote"
 edition = "2021"
