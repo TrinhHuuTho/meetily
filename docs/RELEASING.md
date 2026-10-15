@@ -33,7 +33,8 @@ The release build does not tune native code for the CI machine. `.github/force-p
 
 5. **Wait for the build.** Release (Linux) takes about an hour.
 6. **Test the draft.** Download the `.deb` and AppImage from the draft release and check them against `SHA256SUMS`. At minimum:
-   - install the `.deb` on a clean Ubuntu 22.04 or 24.04 system
+   - install the `.deb` in clean Ubuntu 22.04 and 24.04 containers with `.github/scripts/smoke-test-deb.sh <file>.deb` (needs Docker); it checks dependencies, shared libraries and the sidecars
+   - install it on a desktop and start the app, and run the AppImage
    - record a short meeting with microphone and system audio
    - transcribe it in the English / Vietnamese / Chinese mode
    - generate a summary and export a PDF
