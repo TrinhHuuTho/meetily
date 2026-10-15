@@ -72,6 +72,8 @@ The [hardware guide](docs/GPU_ACCELERATION.md) has measured speeds and model rec
 
 See [docs/building_in_linux.md](docs/building_in_linux.md). [docs/architecture.md](docs/architecture.md) gives an overview of the code.
 
+The whole app, including the Rust core in `frontend/src-tauri`, lives in `frontend/`. The folder keeps its Meetily name, from when Meetily also had a separate Python backend, so that changes from upstream still apply cleanly.
+
 ## Contributing
 
 Bug reports and pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
