@@ -1,8 +1,8 @@
 {
     "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-    "productName": "meetily",
-    "version": "0.4.1",
-    "identifier": "com.trinhhuutho.meetily",
+    "productName": "TriNote",
+    "version": "1.0.0",
+    "identifier": "com.trinhhuutho.trinote",
     "build": {
         "frontendDist": "../out",
         "devUrl": "http://localhost:3118",
@@ -12,7 +12,7 @@
     "app": {
         "windows": [
             {
-                "title": "meetily",
+                "title": "TriNote",
                 "width": 1100,
                 "height": 700,
                 "resizable": true,

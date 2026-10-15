@@ -1,4 +1,4 @@
-import { useCallback, RefObject } from 'react';
+import { useCallback, useState, RefObject } from 'react';
 import { MeetingSummary, Transcript } from '@/types';
 import { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummaryView';
 import { toast } from 'sonner';
@@ -93,6 +93,53 @@ export function useCopyOperations({
     toast.success("Transcript copied to clipboard");
   }, [meeting, meetingTitle, fetchAllTranscripts]);
 
+  // Summary as markdown: edited BlockNote content first, then stored markdown, then legacy sections
+  const getSummaryMarkdown = useCallback(async (): Promise<string> => {
+    let summaryMarkdown = '';
+
+    console.log('🔍 Resolving summary markdown...');
+
+    // Try to get markdown from BlockNote editor first
+    if (blockNoteSummaryRef.current?.getMarkdown) {
+      console.log('📝 Trying to get markdown from ref...');
+      summaryMarkdown = await blockNoteSummaryRef.current.getMarkdown();
+      console.log('📝 Got markdown from ref, length:', summaryMarkdown.length);
+    }
+
+    // Fallback: Check if aiSummary has markdown property
+    if (!summaryMarkdown && aiSummary && typeof aiSummary.markdown === 'string') {
+      console.log('📝 Using markdown from aiSummary');
+      summaryMarkdown = aiSummary.markdown;
+      console.log('📝 Markdown from aiSummary, length:', summaryMarkdown.length);
+    }
+
+    // Fallback: Check for legacy format
+    if (!summaryMarkdown && aiSummary) {
+      console.log('📝 Converting legacy format to markdown');
+      const sections = Object.entries(aiSummary)
+        .filter(([key]) => {
+          // Skip non-section keys
+          return key !== 'markdown' && key !== 'summary_json' && key !== '_section_order' && key !== 'MeetingName';
+        })
+        .map(([, section]) => {
+          if (section && typeof section === 'object' && 'title' in section && 'blocks' in section) {
+            const sectionTitle = `## ${section.title}\n\n`;
+            const sectionContent = section.blocks
+              .map((block: any) => `- ${block.content}`)
+              .join('\n');
+            return sectionTitle + sectionContent;
+          }
+          return '';
+        })
+        .filter(s => s.trim())
+        .join('\n\n');
+      summaryMarkdown = sections;
+      console.log('📝 Converted legacy format, length:', summaryMarkdown.length);
+    }
+
+    return summaryMarkdown;
+  }, [aiSummary, blockNoteSummaryRef]);
+
   // Copy summary to clipboard
   const handleCopySummary = useCallback(async () => {
     if (!hasVisibleSummaryContent(aiSummary)) {
@@ -100,47 +147,7 @@ export function useCopyOperations({
       return;
     }
     try {
-      let summaryMarkdown = '';
-
-      console.log('🔍 Copy Summary - Starting...');
-
-      // Try to get markdown from BlockNote editor first
-      if (blockNoteSummaryRef.current?.getMarkdown) {
-        console.log('📝 Trying to get markdown from ref...');
-        summaryMarkdown = await blockNoteSummaryRef.current.getMarkdown();
-        console.log('📝 Got markdown from ref, length:', summaryMarkdown.length);
-      }
-
-      // Fallback: Check if aiSummary has markdown property
-      if (!summaryMarkdown && aiSummary && typeof aiSummary.markdown === 'string') {
-        console.log('📝 Using markdown from aiSummary');
-        summaryMarkdown = aiSummary.markdown;
-        console.log('📝 Markdown from aiSummary, length:', summaryMarkdown.length);
-      }
-
-      // Fallback: Check for legacy format
-      if (!summaryMarkdown && aiSummary) {
-        console.log('📝 Converting legacy format to markdown');
-        const sections = Object.entries(aiSummary)
-          .filter(([key]) => {
-            // Skip non-section keys
-            return key !== 'markdown' && key !== 'summary_json' && key !== '_section_order' && key !== 'MeetingName';
-          })
-          .map(([, section]) => {
-            if (section && typeof section === 'object' && 'title' in section && 'blocks' in section) {
-              const sectionTitle = `## ${section.title}\n\n`;
-              const sectionContent = section.blocks
-                .map((block: any) => `- ${block.content}`)
-                .join('\n');
-              return sectionTitle + sectionContent;
-            }
-            return '';
-          })
-          .filter(s => s.trim())
-          .join('\n\n');
-        summaryMarkdown = sections;
-        console.log('📝 Converted legacy format, length:', summaryMarkdown.length);
-      }
+      const summaryMarkdown = await getSummaryMarkdown();
 
       // If still no summary content, show message
       if (!summaryMarkdown.trim()) {
@@ -174,10 +181,46 @@ export function useCopyOperations({
       console.error('❌ Failed to copy summary:', error);
       toast.error("Failed to copy summary");
     }
-  }, [aiSummary, meetingTitle, meeting, blockNoteSummaryRef]);
+  }, [aiSummary, meetingTitle, meeting, getSummaryMarkdown]);
+
+  // Export summary + full transcript as a PDF file
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const handleExportPdf = useCallback(async () => {
+    setIsExportingPdf(true);
+    try {
+      const [summaryMarkdown, allTranscripts] = await Promise.all([
+        hasVisibleSummaryContent(aiSummary) ? getSummaryMarkdown() : Promise.resolve(''),
+        fetchAllTranscripts(meeting.id),
+      ]);
+      const { renderMeetingPdf } = await import('@/lib/pdf/meetingPdf');
+      const title = meetingTitle || meeting.title || 'Meeting';
+      const bytes = await renderMeetingPdf({
+        title,
+        createdAt: meeting.created_at,
+        summaryMarkdown,
+        transcripts: allTranscripts,
+      });
+      const savedPath = await invokeTauri<string | null>('save_pdf_file', {
+        fileName: title,
+        bytes: Array.from(bytes),
+      });
+      if (savedPath) {
+        toast.success('PDF exported', { description: savedPath });
+      }
+    } catch (error) {
+      console.error('Failed to export PDF:', error);
+      toast.error('Failed to export PDF', {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsExportingPdf(false);
+    }
+  }, [aiSummary, meeting, meetingTitle, getSummaryMarkdown, fetchAllTranscripts]);
 
   return {
     handleCopyTranscript,
     handleCopySummary,
+    handleExportPdf,
+    isExportingPdf,
   };
 }

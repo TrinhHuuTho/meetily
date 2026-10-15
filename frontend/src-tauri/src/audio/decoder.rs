@@ -291,7 +291,7 @@ fn convert_to_wav_with_ffmpeg(
     // Create temp file in the same directory as the input to avoid cross-device issues
     let parent_dir = input_path.parent().unwrap_or_else(|| Path::new("."));
     let temp_file = tempfile::Builder::new()
-        .prefix(".meetily_decode_")
+        .prefix(".trinote_decode_")
         .suffix(".wav")
         .tempfile_in(parent_dir)
         .map_err(|e| anyhow!("Failed to create temporary WAV file: {}", e))?;
@@ -696,7 +696,7 @@ mod tests {
     #[test]
     fn test_chunked_resample_downsamples_correctly() {
         // 48kHz to 16kHz = 3x downsampling with a 2-second signal
-        let input: Vec<f32> = (0..96000).map(|i| (i as f32 / 96000.0)).collect();
+        let input: Vec<f32> = (0..96000).map(|i| i as f32 / 96000.0).collect();
         let result = chunked_resample_with_progress(&input, 48000, 16000, None);
 
         // Output should be approximately 1/3 the length

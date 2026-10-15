@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
-import { Copy, FolderOpen, RefreshCw } from 'lucide-react';
+import { Copy, FolderOpen, RefreshCw, FileDown, Loader2 } from 'lucide-react';
 import { RetranscribeDialog } from './RetranscribeDialog';
 import { useConfig } from '@/contexts/ConfigContext';
 
@@ -12,6 +12,8 @@ interface TranscriptButtonGroupProps {
   transcriptCount: number;
   onCopyTranscript: () => void;
   onOpenMeetingFolder: () => Promise<void>;
+  onExportPdf?: () => Promise<void>;
+  isExportingPdf?: boolean;
   meetingId?: string;
   meetingFolderPath?: string | null;
   onRefetchTranscripts?: () => Promise<void>;
@@ -22,6 +24,8 @@ export function TranscriptButtonGroup({
   transcriptCount,
   onCopyTranscript,
   onOpenMeetingFolder,
+  onExportPdf,
+  isExportingPdf = false,
   meetingId,
   meetingFolderPath,
   onRefetchTranscripts,
@@ -52,6 +56,22 @@ export function TranscriptButtonGroup({
           <Copy />
           <span className="hidden @[22rem]:inline">Copy</span>
         </Button>
+
+        {onExportPdf && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="px-2 @[22rem]:px-3"
+            onClick={() => {
+              onExportPdf();
+            }}
+            disabled={transcriptCount === 0 || isExportingPdf}
+            title="Export summary and transcript as PDF"
+          >
+            {isExportingPdf ? <Loader2 className="animate-spin" /> : <FileDown />}
+            <span className="hidden @[22rem]:inline">PDF</span>
+          </Button>
+        )}
 
         <Button
           size="sm"

@@ -3,7 +3,7 @@
 // Parallel transcription worker pool and chunk processing logic.
 
 use super::engine::TranscriptionEngine;
-use super::provider::TranscriptionError;
+use super::error::TranscriptionError;
 use crate::audio::AudioChunk;
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
@@ -42,6 +42,16 @@ pub struct TranscriptUpdate {
     pub audio_start_time: f64, // Seconds from recording start (e.g., 125.3)
     pub audio_end_time: f64,   // Seconds from recording start (e.g., 128.6)
     pub duration: f64,          // Segment duration in seconds (e.g., 3.3)
+    /// Detected/decoded language code (e.g. "en", "vi", "zh"); None if unknown
+    pub language: Option<String>,
+}
+
+/// Text and metadata produced for one speech chunk
+struct ChunkTranscription {
+    text: String,
+    confidence: Option<f32>,
+    is_partial: bool,
+    language: Option<String>,
 }
 
 // NOTE: get_transcript_history and get_recording_meeting_name functions
@@ -88,7 +98,6 @@ pub fn start_transcription_task<R: Runtime>(
             let engine_clone = match &transcription_engine {
                 TranscriptionEngine::Whisper(e) => TranscriptionEngine::Whisper(e.clone()),
                 TranscriptionEngine::Parakeet(e) => TranscriptionEngine::Parakeet(e.clone()),
-                TranscriptionEngine::Provider(p) => TranscriptionEngine::Provider(p.clone()),
             };
             let app_clone = app.clone();
             let work_receiver_clone = work_receiver.clone();
@@ -158,7 +167,7 @@ pub fn start_transcription_task<R: Runtime>(
                             )
                             .await
                             {
-                                Ok((transcript, confidence_opt, is_partial)) => {
+                                Ok(ChunkTranscription { text: transcript, confidence: confidence_opt, is_partial, language }) => {
                                     let confidence_str = match confidence_opt {
                                         Some(c) => format!("{:.2}", c),
                                         None => "N/A".to_string(),
@@ -215,6 +224,7 @@ pub fn start_transcription_task<R: Runtime>(
                                             audio_start_time,
                                             audio_end_time,
                                             duration: chunk_duration,
+                                            language,
                                         };
 
                                         if let Err(e) = app_clone.emit("transcript-update", &update)
@@ -401,7 +411,7 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
     engine: &TranscriptionEngine,
     chunk: AudioChunk,
     app: &AppHandle<R>,
-) -> std::result::Result<(String, Option<f32>, bool), TranscriptionError> {
+) -> std::result::Result<ChunkTranscription, TranscriptionError> {
     // Convert to 16kHz mono for transcription
     let transcription_data = if chunk.sample_rate != 16000 {
         crate::audio::audio_processing::resample_audio(&chunk.data, chunk.sample_rate, 16000)
@@ -444,18 +454,25 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
                 .transcribe_audio_with_confidence(speech_samples, language)
                 .await
             {
-                Ok((text, confidence, is_partial)) => {
-                    let cleaned_text = text.trim().to_string();
-                    if cleaned_text.is_empty() {
-                        return Ok((String::new(), Some(confidence), is_partial));
+                Ok(result) => {
+                    let cleaned_text = result.text.trim().to_string();
+                    if !cleaned_text.is_empty() {
+                        info!(
+                            "Whisper transcription complete for chunk {} [{}]: '{}' (confidence: {:.2}, partial: {})",
+                            chunk.chunk_id,
+                            result.language.as_deref().unwrap_or("?"),
+                            cleaned_text,
+                            result.confidence,
+                            result.is_partial
+                        );
                     }
 
-                    info!(
-                        "Whisper transcription complete for chunk {}: '{}' (confidence: {:.2}, partial: {})",
-                        chunk.chunk_id, cleaned_text, confidence, is_partial
-                    );
-
-                    Ok((cleaned_text, Some(confidence), is_partial))
+                    Ok(ChunkTranscription {
+                        text: cleaned_text,
+                        confidence: Some(result.confidence),
+                        is_partial: result.is_partial,
+                        language: result.language,
+                    })
                 }
                 Err(e) => {
                     error!(
@@ -482,17 +499,20 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
             match parakeet_engine.transcribe_audio(speech_samples).await {
                 Ok(text) => {
                     let cleaned_text = text.trim().to_string();
-                    if cleaned_text.is_empty() {
-                        return Ok((String::new(), None, false));
+                    if !cleaned_text.is_empty() {
+                        info!(
+                            "Parakeet transcription complete for chunk {}: '{}'",
+                            chunk.chunk_id, cleaned_text
+                        );
                     }
 
-                    info!(
-                        "Parakeet transcription complete for chunk {}: '{}'",
-                        chunk.chunk_id, cleaned_text
-                    );
-
-                    // Parakeet doesn't provide confidence or partial results
-                    Ok((cleaned_text, None, false))
+                    // Parakeet doesn't provide confidence, partial results or language
+                    Ok(ChunkTranscription {
+                        text: cleaned_text,
+                        confidence: None,
+                        is_partial: false,
+                        language: None,
+                    })
                 }
                 Err(e) => {
                     error!(
@@ -512,55 +532,6 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
                     );
 
                     Err(transcription_error)
-                }
-            }
-        }
-        TranscriptionEngine::Provider(provider) => {
-            // NEW: Trait-based provider (clean, unified interface)
-            let language = crate::get_language_preference_internal();
-
-            match provider.transcribe(speech_samples, language).await {
-                Ok(result) => {
-                    let cleaned_text = result.text.trim().to_string();
-                    if cleaned_text.is_empty() {
-                        return Ok((String::new(), result.confidence, result.is_partial));
-                    }
-
-                    let confidence_str = match result.confidence {
-                        Some(c) => format!("confidence: {:.2}", c),
-                        None => "no confidence".to_string(),
-                    };
-
-                    info!(
-                        "{} transcription complete for chunk {}: '{}' ({}, partial: {})",
-                        provider.provider_name(),
-                        chunk.chunk_id,
-                        cleaned_text,
-                        confidence_str,
-                        result.is_partial
-                    );
-
-                    Ok((cleaned_text, result.confidence, result.is_partial))
-                }
-                Err(e) => {
-                    error!(
-                        "{} transcription failed for chunk {}: {}",
-                        provider.provider_name(),
-                        chunk.chunk_id,
-                        e
-                    );
-
-                    let _ = app.emit(
-                        "transcription-error",
-                        &serde_json::json!({
-                            "error": e.to_string(),
-                            "userMessage": format!("Transcription failed: {}", e),
-                            "actionable": false,
-                            "phase": "active"
-                        }),
-                    );
-
-                    Err(e)
                 }
             }
         }

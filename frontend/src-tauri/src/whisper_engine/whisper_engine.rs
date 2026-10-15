@@ -1,7 +1,6 @@
-// Commit name to recover the serial whisper engine processing for smaller meetings [Slower processing but dooes not fail] - "before parallel processing implementation"
-
 use std::path::{PathBuf};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{watch, Mutex, RwLock};
@@ -13,7 +12,8 @@ use reqwest::Client;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use crate::config::WHISPER_MODEL_CATALOG;
-use super::acceleration::{whisper_context_acceleration_for, WhisperCompiledBackend};
+use crate::hardware_acceleration::{self, GpuEngine};
+use super::acceleration::{gpu_devices, preferred_gpu, whisper_context_acceleration_for, WhisperCompiledBackend, WhisperContextAcceleration};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ModelStatus {
@@ -65,16 +65,137 @@ pub enum CancelDownloadOutcome {
 
 const CANCEL_DOWNLOAD_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Result of transcribing one audio segment
+#[derive(Debug, Clone)]
+pub struct WhisperTranscription {
+    pub text: String,
+    pub confidence: f32,
+    pub is_partial: bool,
+    /// Whisper language code used for decoding (e.g. "en", "vi", "zh")
+    pub language: Option<String>,
+}
+
+/// How the decoding language is chosen for a segment
+#[derive(Debug, Clone, PartialEq)]
+pub enum LanguageMode {
+    /// Let whisper.cpp detect among all languages
+    Auto,
+    /// Detect, then translate to English
+    AutoTranslate,
+    /// Detect, but only choose among these language codes ("auto:en,vi,zh")
+    Restricted(Vec<String>),
+    /// Always decode with this language code
+    Fixed(String),
+}
+
+impl LanguageMode {
+    pub fn parse(preference: Option<&str>) -> Self {
+        match preference.map(str::trim) {
+            None | Some("") | Some("auto") => Self::Auto,
+            Some("auto-translate") => Self::AutoTranslate,
+            Some(pref) => match pref.strip_prefix("auto:") {
+                Some(list) => {
+                    let codes: Vec<String> = list
+                        .split(',')
+                        .map(|code| code.trim().to_lowercase())
+                        .filter(|code| whisper_rs::get_lang_id(code).is_some())
+                        .collect();
+                    match codes.len() {
+                        0 => Self::Auto,
+                        1 => Self::Fixed(codes[0].clone()),
+                        _ => Self::Restricted(codes),
+                    }
+                }
+                None => Self::Fixed(pref.to_string()),
+            },
+        }
+    }
+}
+
+/// Most likely allowed language given whisper's per-language probabilities
+pub fn pick_language(probs: &[f32], codes: &[String]) -> Option<String> {
+    codes
+        .iter()
+        .filter_map(|code| {
+            let id = whisper_rs::get_lang_id(code)? as usize;
+            probs.get(id).map(|p| (code, *p))
+        })
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(code, _)| code.clone())
+}
+
+/// Small multilingual models used only for language detection, in order of preference.
+/// Detection runs a full encoder pass, so a small model keeps restricted auto mode
+/// nearly as fast as a fixed language (base: ~0.05 RTF vs ~0.45 for large-v3-turbo).
+const LANGUAGE_DETECTOR_MODELS: &[&str] = &["base", "base-q5_1", "tiny", "tiny-q5_1", "small-q5_1", "small"];
+
+/// Encoder frames per second of audio (whisper uses 1500 frames for 30s)
+const ENCODER_FRAMES_PER_SECOND: f64 = 50.0;
+/// Extra encoder frames kept beyond the segment length when fitting audio_ctx
+const AUDIO_CTX_MARGIN_FRAMES: i32 = 128;
+/// Segments at least this long use the full 30s encoder window
+const FIT_AUDIO_CTX_MAX_SECONDS: f64 = 27.0;
+
+/// Encoder context sized to the segment instead of the padded 30s window.
+/// Speech segments are usually a few seconds long, so this cuts encoder work ~4-6x.
+pub(crate) fn fitted_audio_ctx(duration_seconds: f64) -> Option<i32> {
+    (duration_seconds < FIT_AUDIO_CTX_MAX_SECONDS).then(|| {
+        ((duration_seconds * ENCODER_FRAMES_PER_SECOND).ceil() as i32 + AUDIO_CTX_MARGIN_FRAMES).min(1500)
+    })
+}
+
+/// GPU/flash-attention context parameters for this build and machine
+fn context_params() -> (WhisperContextParameters<'static>, WhisperContextAcceleration) {
+    let hardware_profile = crate::audio::HardwareProfile::detect();
+    let gpu = preferred_gpu(gpu_devices());
+    let acceleration = whisper_context_acceleration_for(
+        WhisperCompiledBackend::current(),
+        hardware_profile.gpu_type,
+        gpu,
+        !hardware_acceleration::use_gpu(GpuEngine::Transcription),
+    );
+    log::info!(
+        "Whisper acceleration decision: compiled_backend={} gpu={} use_gpu={} flash_attn={} gpu_device={}",
+        acceleration.compiled_backend.as_str(),
+        gpu.map_or("none", |device| device.description.as_str()),
+        acceleration.use_gpu,
+        acceleration.flash_attn,
+        acceleration.gpu_device,
+    );
+    let params = WhisperContextParameters {
+        use_gpu: acceleration.use_gpu,
+        gpu_device: acceleration.gpu_device,
+        flash_attn: acceleration.flash_attn,
+        ..Default::default()
+    };
+    (params, acceleration)
+}
+
+/// Threads for whisper.cpp CPU work. With the model on the GPU, whisper's own default of
+/// min(4, cores) is enough; on the CPU every physical core helps (hyperthreads do not)
+fn whisper_threads(on_gpu: bool) -> usize {
+    static PHYSICAL_CORES: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    let logical = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    if on_gpu {
+        return logical.min(4);
+    }
+    PHYSICAL_CORES
+        .get_or_init(|| sysinfo::System::new().physical_core_count())
+        .unwrap_or(logical)
+        .clamp(1, 8)
+}
+
 pub struct WhisperEngine {
     models_dir: PathBuf,
     current_context: Arc<RwLock<Option<WhisperContext>>>,
     current_model: Arc<RwLock<Option<String>>>,
     available_models: Arc<RwLock<HashMap<String, ModelInfo>>>,
-    // State tracking for smart logging
-    last_transcription_was_short: Arc<RwLock<bool>>,
-    short_audio_warning_logged: Arc<RwLock<bool>>,
-    // Performance optimization: reduce logging frequency
-    transcription_count: Arc<RwLock<u64>>,
+    /// Small model used for restricted language detection (model name, context)
+    language_detector: Arc<RwLock<Option<(String, WhisperContext)>>>,
+    /// Size the encoder context to each segment instead of a padded 30s window
+    fit_audio_ctx: Arc<AtomicBool>,
+    /// Whether the loaded model runs on the GPU (inference is then crash-guarded)
+    context_on_gpu: Arc<AtomicBool>,
     // A model remains active until its owning worker has completed cleanup.
     active_downloads: Arc<Mutex<HashMap<String, Arc<ActiveDownload>>>>,
     #[cfg(test)]
@@ -147,7 +268,7 @@ impl WhisperEngine {
                 dirs::data_dir()
                     .or_else(|| dirs::home_dir())
                     .ok_or_else(|| anyhow!("Could not find system data directory"))?
-                    .join("Meetily")
+                    .join("TriNote")
                     .join("models")
             }
         };
@@ -182,11 +303,9 @@ impl WhisperEngine {
             current_context: Arc::new(RwLock::new(None)),
             current_model: Arc::new(RwLock::new(None)),
             available_models: Arc::new(RwLock::new(HashMap::new())),
-            // Initialize state tracking
-            last_transcription_was_short: Arc::new(RwLock::new(false)),
-            short_audio_warning_logged: Arc::new(RwLock::new(false)),
-            // Performance optimization: reduce logging frequency
-            transcription_count: Arc::new(RwLock::new(0)),
+            language_detector: Arc::new(RwLock::new(None)),
+            fit_audio_ctx: Arc::new(AtomicBool::new(true)),
+            context_on_gpu: Arc::new(AtomicBool::new(false)),
             active_downloads: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(test)]
             download_state_test_hook: std::sync::Mutex::new(None),
@@ -313,35 +432,17 @@ impl WhisperEngine {
                 // PERFORMANCE OPTIMIZATION: Use comprehensive hardware profile for optimal GPU configuration
                 let hardware_profile = crate::audio::HardwareProfile::detect();
                 let adaptive_config = hardware_profile.get_whisper_config();
-                let acceleration = whisper_context_acceleration_for(
-                    WhisperCompiledBackend::current(),
-                    hardware_profile.gpu_type,
-                    hardware_profile.performance_tier,
-                );
-
-                let context_param = WhisperContextParameters {
-                    use_gpu: acceleration.use_gpu,
-                    gpu_device: acceleration.gpu_device,
-                    flash_attn: acceleration.flash_attn,
-                    ..Default::default()
-                };
-
-                log::info!(
-                    "Whisper acceleration decision: compiled_backend={} runtime_detected_gpu={:?} use_gpu={} flash_attn={} gpu_device={}",
-                    acceleration.compiled_backend.as_str(),
-                    acceleration.runtime_detected_gpu,
-                    acceleration.use_gpu,
-                    acceleration.flash_attn,
-                    acceleration.gpu_device,
-                );
+                let (context_param, acceleration) = context_params();
 
                 let ctx = {
+                    let _gpu_scope = acceleration.use_gpu.then(hardware_acceleration::transcription_gpu_scope);
                     // Load whisper context with hardware-optimized parameters
-                    WhisperContext::new_with_params(&model_info.path.to_string_lossy(), context_param)
+                    WhisperContext::new_with_params(&model_info.path, context_param)
                         .map_err(|e| anyhow!("Failed to load model {}: {}", model_name, e))?
                 };
 
                 // Update current context and model
+                self.context_on_gpu.store(acceleration.use_gpu, Ordering::Relaxed);
                 *self.current_context.write().await = Some(ctx);
                 *self.current_model.write().await = Some(model_name.to_string());
 
@@ -369,6 +470,7 @@ impl WhisperEngine {
     }
 
     pub async fn unload_model(&self) -> bool  {
+        self.language_detector.write().await.take();
         let mut ctx_guard = self.current_context.write().await;
         let unloaded = ctx_guard.take().is_some();
         if unloaded {
@@ -379,6 +481,15 @@ impl WhisperEngine {
         model_name_guard.take();
 
         unloaded
+    }
+
+    /// Reload the current model (the detector reloads lazily) so new acceleration settings apply
+    pub async fn reload_current_model(&self) -> Result<()> {
+        let Some(name) = self.get_current_model().await else {
+            return Ok(());
+        };
+        self.unload_model().await;
+        self.load_model(&name).await
     }
 
     pub async fn get_current_model(&self) -> Option<String> {
@@ -538,32 +649,93 @@ impl WhisperEngine {
         repeated_words as f32 / total_words
     }
     
-    /// Transcribe audio with streaming support for partial results and adaptive quality
-    pub async fn transcribe_audio_with_confidence(&self, audio_data: Vec<f32>, language: Option<String>) -> Result<(String, f32, bool)> {
+    /// Enable/disable sizing the encoder context to each segment (on by default)
+    pub fn set_fit_audio_ctx(&self, enabled: bool) {
+        self.fit_audio_ctx.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Pick the most likely of `codes` for this audio. Uses a small detector model when
+    /// one is downloaded, otherwise the loaded transcription model.
+    async fn detect_language(
+        &self,
+        main_ctx: &WhisperContext,
+        audio: &[f32],
+        codes: &[String],
+    ) -> Result<Option<String>> {
+        self.ensure_language_detector().await;
+        let detector = self.language_detector.read().await;
+        let ctx = detector.as_ref().map(|(_, ctx)| ctx).unwrap_or(main_ctx);
+
+        let threads = whisper_threads(self.context_on_gpu.load(Ordering::Relaxed));
+        let mut state = ctx.create_state()?;
+        state.pcm_to_mel(audio, threads)?;
+        let (_, probs) = state.lang_detect(0, threads)?;
+        Ok(pick_language(&probs, codes))
+    }
+
+    /// Load the preferred small detector model if one is available and not loaded yet
+    async fn ensure_language_detector(&self) {
+        if self.language_detector.read().await.is_some() {
+            return;
+        }
+        let candidate = {
+            let models = self.available_models.read().await;
+            LANGUAGE_DETECTOR_MODELS.iter().find_map(|name| {
+                models
+                    .get(*name)
+                    .filter(|info| matches!(info.status, ModelStatus::Available))
+                    .map(|info| (name.to_string(), info.path.clone()))
+            })
+        };
+        let Some((name, path)) = candidate else {
+            return;
+        };
+
+        let mut detector = self.language_detector.write().await;
+        if detector.is_some() {
+            return;
+        }
+        let (params, acceleration) = context_params();
+        let _gpu_scope = acceleration.use_gpu.then(hardware_acceleration::transcription_gpu_scope);
+        match WhisperContext::new_with_params(&path, params) {
+            Ok(ctx) => {
+                log::info!("Loaded language detector model: {}", name);
+                *detector = Some((name, ctx));
+            }
+            Err(e) => log::warn!("Failed to load language detector {}: {}", name, e),
+        }
+    }
+
+    /// Transcribe audio with adaptive quality and report the language that was used
+    pub async fn transcribe_audio_with_confidence(&self, audio_data: Vec<f32>, language: Option<String>) -> Result<WhisperTranscription> {
         let ctx_lock = self.current_context.read().await;
         let ctx = ctx_lock.as_ref()
             .ok_or_else(|| anyhow!("No model loaded. Please load a model first."))?;
+        // Detection and decoding below are crash-guarded when they run on the GPU
+        let _gpu_scope = self
+            .context_on_gpu
+            .load(Ordering::Relaxed)
+            .then(hardware_acceleration::transcription_gpu_scope);
 
         // Get adaptive configuration based on hardware
         let hardware_profile = crate::audio::HardwareProfile::detect();
         let adaptive_config = hardware_profile.get_whisper_config();
+
+        // Resolve the decoding language before building params (params borrow the code)
+        let (language_code, should_translate) = match LanguageMode::parse(language.as_deref()) {
+            LanguageMode::Auto => (None, false),
+            LanguageMode::AutoTranslate => (None, true),
+            LanguageMode::Fixed(code) => (Some(code), false),
+            LanguageMode::Restricted(codes) => (self.detect_language(ctx, &audio_data, &codes).await?, false),
+        };
 
         // ADAPTIVE parameters - optimized for current hardware
         let mut params = FullParams::new(SamplingStrategy::BeamSearch {
             beam_size: adaptive_config.beam_size as i32,
             patience: 1.0
         });
-
-        // Configure with adaptive settings
-        // If language is "auto" or None, use automatic language detection (pass None)
-        // If language is "auto-translate", enable translation to English
-        // Otherwise, use the specified language code
-        let (language_code, should_translate) = match language.as_deref() {
-            Some("auto") | None => (None, false),
-            Some("auto-translate") => (None, true),
-            Some(lang) => (Some(lang), false),
-        };
-        params.set_language(language_code);
+        params.set_n_threads(whisper_threads(self.context_on_gpu.load(Ordering::Relaxed)) as i32);
+        params.set_language(language_code.as_deref());
         params.set_translate(should_translate);
 
         // CRITICAL: Disable timestamp tokens to prevent whisper.cpp chunking heuristics
@@ -581,7 +753,7 @@ impl WhisperEngine {
 
         // Additional suppression to reduce C library verbosity
         params.set_suppress_blank(true);
-        params.set_suppress_non_speech_tokens(true);
+        params.set_suppress_nst(true);
         params.set_temperature(adaptive_config.temperature);
         params.set_max_initial_ts(1.0);
         params.set_entropy_thold(2.4);
@@ -593,31 +765,32 @@ impl WhisperEngine {
         params.set_max_len(200);
         params.set_single_segment(false);
 
-        // Set thread count based on hardware (if supported by whisper.cpp)
-        if let Some(_max_threads) = adaptive_config.max_threads {
-            // Note: whisper.cpp may or may not expose thread control through params
-            // Removed debug log to reduce I/O overhead in transcription hot path
-        }
-
         let duration_seconds = audio_data.len() as f64 / 16000.0;
         let is_partial = duration_seconds < 15.0; // Consider chunks under 15s as partial
 
-        let (num_segments, state) = {
-            let mut state = ctx.create_state()?;
-            state.full(params, &audio_data)?;
-            let num_segments = state.full_n_segments();
+        if self.fit_audio_ctx.load(Ordering::Relaxed) {
+            if let Some(audio_ctx) = fitted_audio_ctx(duration_seconds) {
+                params.set_audio_ctx(audio_ctx);
+            }
+        }
 
-            (num_segments, state)
-        };
+        let mut state = ctx.create_state()?;
+        state.full(params, &audio_data)?;
+        let num_segments = state.full_n_segments();
+
+        // Report the language whisper actually decoded with (auto-detected or forced)
+        let detected_language = language_code.or_else(|| {
+            whisper_rs::get_lang_str(state.full_lang_id_from_state()).map(str::to_string)
+        });
+
         let mut result = String::new();
         let mut total_confidence = 0.0;
         let mut segment_count = 0;
 
-        let num_segments = num_segments?;
         for i in 0..num_segments {
-            let segment_text = match state.full_get_segment_text_lossy(i) {
-                Ok(text) => text,
-                Err(_) => continue,
+            let segment_text = match state.get_segment(i).map(|segment| segment.to_str_lossy()) {
+                Some(Ok(text)) => text.into_owned(),
+                _ => continue,
             };
 
             // Calculate confidence based on segment length and duration (simplified approach)
@@ -641,6 +814,9 @@ impl WhisperEngine {
 
         let final_result = result.trim().to_string();
         let cleaned_result = Self::clean_repetitive_text(&final_result);
+        if cleaned_result != final_result {
+            log::info!("Cleaned repetitive transcription: '{}' -> '{}'", final_result, cleaned_result);
+        }
 
         let avg_confidence = if segment_count > 0 {
             total_confidence / segment_count as f32
@@ -648,180 +824,21 @@ impl WhisperEngine {
             0.0
         };
 
-        Ok((cleaned_result, avg_confidence, is_partial))
+        perf_debug!(
+            "Whisper transcribed {:.1}s ({:?}): '{}'",
+            duration_seconds, detected_language, cleaned_result
+        );
+
+        Ok(WhisperTranscription {
+            text: cleaned_result,
+            confidence: avg_confidence,
+            is_partial,
+            language: detected_language,
+        })
     }
 
     pub async fn transcribe_audio(&self, audio_data: Vec<f32>, language: Option<String>) -> Result<String> {
-        let ctx_lock = self.current_context.read().await;
-        let ctx = ctx_lock.as_ref()
-            .ok_or_else(|| anyhow!("No model loaded. Please load a model first."))?;
-
-        // Get adaptive configuration based on hardware
-        let hardware_profile = crate::audio::HardwareProfile::detect();
-        let adaptive_config = hardware_profile.get_whisper_config();
-
-        // ADAPTIVE parameters - optimized for current hardware
-        let mut params = FullParams::new(SamplingStrategy::BeamSearch {
-            beam_size: adaptive_config.beam_size as i32,
-            patience: 1.0
-        });
-
-        // Configure for good quality
-        // If language is "auto" or None, use automatic language detection (pass None)
-        // If language is "auto-translate", enable translation to English
-        // Otherwise, use the specified language code
-        let (language_code, should_translate) = match language.as_deref() {
-            Some("auto") | None => (None, false),
-            Some("auto-translate") => (None, true),
-            Some(lang) => (Some(lang), false),
-        };
-        params.set_language(language_code);
-        params.set_translate(should_translate);
-
-        // CRITICAL: Disable timestamp tokens to prevent whisper.cpp chunking heuristics
-        // The "single timestamp ending - skip entire chunk" optimization incorrectly discards
-        // complete, valid transcriptions. Disabling timestamps forces whisper to return ALL text.
-        params.set_no_timestamps(true);     // Prevent timestamp-based segment skipping
-        params.set_token_timestamps(true);  // Keep for any timestamp-aware features
-
-        params.set_print_special(false);
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
-
-        // BALANCED settings - good quality with reasonable speed
-        params.set_suppress_blank(true);
-        params.set_suppress_non_speech_tokens(true);
-        params.set_temperature(0.3);             // Lower than 0.4 for consistency, higher than 0.0 for quality
-        params.set_max_initial_ts(1.0);
-        params.set_entropy_thold(2.4);
-        params.set_logprob_thold(-1.0);
-        // BALANCED FIX: Lowered from 0.75 to 0.55 to allow quiet speech detection
-        // Previous value was too aggressive and rejected valid quiet speech
-        // 0.55 is balanced - prevents hallucinations while preserving quiet speech
-        params.set_no_speech_thold(0.55);
-
-        // Reasonable length limits
-        params.set_max_len(200);                 // Reasonable length
-        params.set_single_segment(false);        // Allow multiple segments for better accuracy
-
-        // Note: compression_ratio_threshold would be ideal but not available in current whisper-rs
-        // This would help detect repetitive outputs: params.set_compression_ratio_threshold(2.4);
-
-        // Duration-based optimization is handled by beam search parameters
-        let duration_seconds = audio_data.len() as f64 / 16000.0; // Assuming 16kHz
-        let is_short_audio = duration_seconds < 1.0;
-
-        // Smart logging based on audio duration and previous states
-        let mut should_log_transcription = true;
-        let mut should_log_short_warning = false;
-
-        if is_short_audio {
-            let last_was_short = *self.last_transcription_was_short.read().await;
-            let warning_logged = *self.short_audio_warning_logged.read().await;
-
-            if !warning_logged {
-                should_log_short_warning = true;
-                *self.short_audio_warning_logged.write().await = true;
-            }
-
-            // Only log transcription start if it's the first short audio or previous wasn't short
-            should_log_transcription = !last_was_short;
-
-            *self.last_transcription_was_short.write().await = true;
-        } else {
-            let last_was_short = *self.last_transcription_was_short.read().await;
-
-            // Always log when transitioning from short to normal audio
-            if last_was_short {
-                log::info!("Audio duration normalized, resuming transcription");
-                *self.short_audio_warning_logged.write().await = false;
-            }
-
-            *self.last_transcription_was_short.write().await = false;
-        }
-
-        if should_log_short_warning {
-            log::warn!("Audio duration is short ({:.1}s < 1.0s). Consider padding the input audio with silence. Further short audio warnings will be suppressed.", duration_seconds);
-        }
-
-        // Performance optimization: reduce transcription start logging frequency
-        let transcription_count = {
-            let mut count = self.transcription_count.write().await;
-            *count += 1;
-            *count
-        };
-
-        // Only log every 10th transcription or significant audio (>10s) to reduce I/O overhead
-        if should_log_transcription && (transcription_count % 10 == 0 || duration_seconds > 10.0) {
-            log::info!("Starting transcription #{} of {} samples ({:.1}s duration)",
-                      transcription_count, audio_data.len(), duration_seconds);
-        }
-        let mut state = ctx.create_state()?;
-        state.full(params, &audio_data)?;
-
-        // Extract text with improved segment handling
-        let num_segments = state.full_n_segments()?;
-
-        // Performance optimization: reduce segment completion logging
-        // Only log for significant transcriptions to avoid I/O overhead
-        if (should_log_transcription || num_segments > 0) && (num_segments > 3 || duration_seconds > 5.0) {
-            perf_debug!("Transcription #{} completed with {} segments ({:.1}s)", transcription_count, num_segments, duration_seconds);
-        }
-        let mut result = String::new();
-
-        for i in 0..num_segments {
-            let segment_text = match state.full_get_segment_text_lossy(i) {
-                Ok(text) => text,
-                Err(_) => continue,
-            };
-
-            let _start_time = state.full_get_segment_t0(i).unwrap_or(0);
-            let _end_time = state.full_get_segment_t1(i).unwrap_or(0);
-
-            // Performance optimization: remove per-segment debug logging
-            // This was causing significant I/O overhead during transcription
-            // Only log segments for very long audio (>30s) or when explicitly debugging
-            if duration_seconds > 30.0 {
-                perf_trace!("Segment {} ({:.2}s-{:.2}s): '{}'",
-                           i, _start_time as f64 / 100.0, _end_time as f64 / 100.0, segment_text);
-            }
-
-            // Clean and append segment text
-            let cleaned_text = segment_text.trim();
-            if !cleaned_text.is_empty() {
-                if !result.is_empty() {
-                    result.push(' ');
-                }
-                result.push_str(cleaned_text);
-            }
-        }
-
-        let final_result = result.trim().to_string();
-
-        // Check for repetition loops and clean them up
-        let cleaned_result = Self::clean_repetitive_text(&final_result);
-
-        // Performance optimization: smart logging for transcription results
-        if cleaned_result.is_empty() {
-            // Only log empty results occasionally to reduce spam
-            if should_log_transcription && transcription_count % 20 == 0 {
-                perf_debug!("Transcription #{} result is empty - no speech detected", transcription_count);
-            }
-        } else {
-            if cleaned_result != final_result {
-                log::info!("Cleaned repetitive transcription #{}: '{}' -> '{}'", transcription_count, final_result, cleaned_result);
-            }
-            // Reduce successful transcription logging frequency
-            // Only log every 5th result or significant results (>50 chars) to reduce I/O overhead
-            if transcription_count % 5 == 0 || cleaned_result.len() > 50 || duration_seconds > 10.0 {
-                log::info!("Transcription #{} result: '{}'", transcription_count, cleaned_result);
-            } else {
-                perf_debug!("Transcription #{} result: '{}'", transcription_count, cleaned_result);
-            }
-        }
-
-        Ok(cleaned_result)
+        Ok(self.transcribe_audio_with_confidence(audio_data, language).await?.text)
     }
     
     pub async fn get_models_directory(&self) -> PathBuf {
@@ -1127,7 +1144,7 @@ impl WhisperEngine {
         }
 
         let client = Client::builder()
-            .user_agent(concat!("Meetily/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("TriNote/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| anyhow!("Failed to create download client: {}", e))?;
         let response = tokio::select! {
@@ -1640,7 +1657,7 @@ mod tests {
 
         assert!(error.to_string().contains("too small"));
         assert!(request.to_ascii_lowercase().contains(&format!(
-            "user-agent: meetily/{}",
+            "user-agent: trinote/{}",
             env!("CARGO_PKG_VERSION")
         )));
         assert!(!engine.active_downloads.lock().await.contains_key("tiny"));

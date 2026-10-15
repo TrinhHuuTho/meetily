@@ -55,7 +55,7 @@ impl PipeWireSystemCapture {
                 "--channels",
                 "1",
                 "-P",
-                "{ stream.capture.sink=true node.name=meetily-system-audio }",
+                "{ stream.capture.sink=true node.name=trinote-system-audio }",
                 "-",
             ])
             .stdin(Stdio::null())

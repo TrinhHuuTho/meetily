@@ -1,10 +1,10 @@
 [package]
-name = "meetily"
-version = "0.4.1"
-description = "A Tauri App for meeting minutes"
-authors = ["Sujith S"]
+name = "trinote"
+version = "1.0.0"
+description = "Private, on-device meeting notes for English, Vietnamese and Chinese"
+authors = ["Trinh Huu Tho", "Sujith S"]
 license = "MIT"
-repository = "https://github.com/Zackriya-Solutions/meeting-minutes"
+repository = "https://github.com/TrinhHuuTho/trinote"
 edition = "2021"
 rust-version = "1.77"
 
@@ -109,7 +109,6 @@ thiserror = "2.0.16"                # Error handling for Parakeet
 # Async
 tokio = { version = "1.32.0", features = ["full", "tracing"] }
 tokio-util = "0.7"  # Utilities for tokio including CancellationToken
-async-trait = "0.1"  # Trait abstraction for async methods
 
 reqwest = { version = "0.11", features = ["blocking", "multipart", "json", "stream"] }
 
@@ -172,7 +171,7 @@ futures-channel = "0.3.31"
 
 # PERFORMANCE: Enable Metal GPU + CoreML acceleration automatically on macOS
 # CoreML provides additional acceleration for Apple Silicon chips
-whisper-rs = { version = "0.13.2", features = ["raw-api", "metal", "coreml"] }
+whisper-rs = { version = "0.16.0", features = ["raw-api", "metal", "coreml"] }
 
 # Windows-specific dependencies
 # Default: CPU-only build (no BLAS)
@@ -181,7 +180,7 @@ whisper-rs = { version = "0.13.2", features = ["raw-api", "metal", "coreml"] }
 #   --features vulkan   (AMD/Intel GPUs)
 #   --features openblas (OpenBLAS optimization, requires BLAS_INCLUDE_DIRS)
 [target.'cfg(target_os = "windows")'.dependencies]
-whisper-rs = { version = "0.13.2", features = ["raw-api"] }
+whisper-rs = { version = "0.16.0", features = ["raw-api"] }
 ort = { version = "2.0.0-rc.10", features = ["load-dynamic"] }
 futures-channel = "0.3.31"
 
@@ -193,7 +192,7 @@ futures-channel = "0.3.31"
 #   --features hipblas  (AMD ROCm)
 #   --features openblas (OpenBLAS optimization, requires BLAS_INCLUDE_DIRS)
 [target.'cfg(target_os = "linux")'.dependencies]
-whisper-rs = { version = "0.13.2", features = ["raw-api"] }
+whisper-rs = { version = "0.16.0", features = ["raw-api"] }
 futures-channel = "0.3.31"
 
 [dev-dependencies]

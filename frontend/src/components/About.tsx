@@ -3,18 +3,38 @@ import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import Image from 'next/image';
 
+const REPOSITORY_URL = 'https://github.com/TrinhHuuTho/trinote';
+const UPSTREAM_URL = 'https://github.com/Zackriya-Solutions/meeting-minutes';
+
+const FEATURES = [
+    {
+        title: 'Private by design',
+        description: 'Audio, transcripts and summaries stay on your computer. No telemetry, no account.',
+    },
+    {
+        title: 'English, Vietnamese, Chinese',
+        description: 'Each speech segment is detected and transcribed in its own language, even in mixed meetings.',
+    },
+    {
+        title: 'Local AI summaries',
+        description: 'Summarize with the built-in model or Ollama, or bring your own API key.',
+    },
+    {
+        title: 'PDF export',
+        description: 'Share the summary and the timestamped transcript as one PDF.',
+    },
+];
 
 export function About() {
-    const [currentVersion, setCurrentVersion] = useState<string>('0.4.1');
+    const [currentVersion, setCurrentVersion] = useState<string>('');
 
     useEffect(() => {
-        // Get current version on mount
         getVersion().then(setCurrentVersion).catch(console.error);
     }, []);
 
-    const handleContactClick = async () => {
+    const openUrl = async (url: string) => {
         try {
-            await invoke('open_external_url', { url: 'https://meetily.zackriya.com/#about' });
+            await invoke('open_external_url', { url });
         } catch (error) {
             console.error('Failed to open link:', error);
         }
@@ -27,70 +47,57 @@ export function About() {
                 <div className="mb-3">
                     <Image
                         src="icon_128x128.png"
-                        alt="Meetily Logo"
+                        alt="TriNote Logo"
                         width={64}
                         height={64}
                         className="mx-auto"
                     />
                 </div>
-                {/* <h1 className="text-xl font-bold text-gray-900">Meetily</h1> */}
-                <span className="text-sm text-gray-500"> v{currentVersion}</span>
+                <h1 className="text-xl font-bold text-gray-900">TriNote</h1>
+                {currentVersion && <span className="text-sm text-gray-500">v{currentVersion}</span>}
                 <p className="text-medium text-gray-600 mt-1">
-                    Real-time notes and summaries that never leave your machine.
+                    Meeting notes and summaries that never leave your machine.
                 </p>
             </div>
 
             {/* Features Grid - Compact */}
-            <div className="space-y-3">
-                <h2 className="text-base font-semibold text-gray-800">What makes Meetily different</h2>
-                <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-gray-50 rounded p-3 hover:bg-gray-100 transition-colors">
-                        <h3 className="font-bold text-sm text-gray-900 mb-1">Privacy-first</h3>
-                        <p className="text-xs text-gray-600 leading-relaxed">Your data & AI processing workflow can now stay within your premise. No cloud, no leaks.</p>
+            <div className="grid grid-cols-2 gap-2">
+                {FEATURES.map(feature => (
+                    <div key={feature.title} className="bg-gray-50 rounded p-3">
+                        <h3 className="font-bold text-sm text-gray-900 mb-1">{feature.title}</h3>
+                        <p className="text-xs text-gray-600 leading-relaxed">{feature.description}</p>
                     </div>
-                    <div className="bg-gray-50 rounded p-3 hover:bg-gray-100 transition-colors">
-                        <h3 className="font-bold text-sm text-gray-900 mb-1">Use Any Model</h3>
-                        <p className="text-xs text-gray-600 leading-relaxed">Prefer local open-source model? Great. Want to plug in an external API? Also fine. No lock-in.</p>
-                    </div>
-                    <div className="bg-gray-50 rounded p-3 hover:bg-gray-100 transition-colors">
-                        <h3 className="font-bold text-sm text-gray-900 mb-1">Cost-Smart</h3>
-                        <p className="text-xs text-gray-600 leading-relaxed">Avoid pay-per-minute bills by running models locally (or pay only for the calls you choose).</p>
-                    </div>
-                    <div className="bg-gray-50 rounded p-3 hover:bg-gray-100 transition-colors">
-                        <h3 className="font-bold text-sm text-gray-900 mb-1">Works everywhere</h3>
-                        <p className="text-xs text-gray-600 leading-relaxed">Google Meet, Zoom, Teams-online or offline.</p>
-                    </div>
+                ))}
+            </div>
+
+            {/* Open source attribution */}
+            <div className="bg-blue-50 rounded p-3 space-y-2">
+                <p className="text-sm text-blue-900">
+                    TriNote is open source and based on <span className="font-semibold">Meetily</span> by
+                    Zackriya Solutions, used under the MIT License.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                    <button
+                        onClick={() => openUrl(REPOSITORY_URL)}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors"
+                    >
+                        Source code
+                    </button>
+                    <button
+                        onClick={() => openUrl(UPSTREAM_URL)}
+                        className="px-3 py-1.5 bg-white hover:bg-gray-50 border border-blue-200 text-blue-700 text-sm font-medium rounded transition-colors"
+                    >
+                        Original Meetily project
+                    </button>
                 </div>
-            </div>
-
-            {/* Coming Soon - Compact */}
-            <div className="bg-blue-50 rounded p-3">
-                <p className="text-s text-blue-800">
-                    <span className="font-bold">Coming soon:</span> A library of on-device AI agents-automating follow-ups, action tracking, and more.
-                </p>
-            </div>
-
-            {/* CTA Section - Compact */}
-            <div className="text-center space-y-2">
-                <h3 className="text-medium font-semibold text-gray-800">Ready to push your business further?</h3>
-                <p className="text-s text-gray-600">
-                    If you're planning to build privacy-first custom AI agents or a fully tailored product for your <span className="font-bold">business</span>, we can help you build it.
-                </p>
-                <button
-                    onClick={handleContactClick}
-                    className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors duration-200 shadow-sm hover:shadow-md"
-                >
-                    Chat with the Zackriya team
-                </button>
             </div>
 
             {/* Footer - Compact */}
             <div className="pt-2 border-t border-gray-200 text-center">
                 <p className="text-xs text-gray-400">
-                    Built by Zackriya Solutions
+                    Maintained by Trinh Huu Tho
                 </p>
             </div>
         </div>
-
     )
 }

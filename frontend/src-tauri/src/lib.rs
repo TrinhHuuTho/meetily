@@ -14,17 +14,6 @@ macro_rules! perf_debug {
     ($($arg:tt)*) => {};
 }
 
-#[cfg(debug_assertions)]
-macro_rules! perf_trace {
-    ($($arg:tt)*) => {
-        log::trace!($($arg)*)
-    };
-}
-
-#[cfg(not(debug_assertions))]
-macro_rules! perf_trace {
-    ($($arg:tt)*) => {};
-}
 
 // Declare audio module
 pub mod api;
@@ -32,6 +21,8 @@ pub mod audio;
 pub mod config;
 pub mod console_utils;
 pub mod database;
+pub mod export;
+pub mod hardware_acceleration;
 pub mod notifications;
 pub mod ollama;
 pub mod onboarding;
@@ -461,6 +452,13 @@ pub fn run() {
                 }
             });
 
+            // GPU/CPU preference and recovery from a GPU crash in the previous run;
+            // must run before any model is loaded
+            match _app.path().app_data_dir() {
+                Ok(dir) => hardware_acceleration::init(&dir),
+                Err(e) => log::error!("Failed to resolve app data dir for acceleration settings: {}", e),
+            }
+
             // Set models directory to use app_data_dir (unified storage location)
             whisper_engine::commands::set_models_directory(&_app.handle());
 
@@ -537,6 +535,9 @@ pub fn run() {
             start_recording,
             stop_recording,
             is_recording,
+            hardware_acceleration::get_acceleration_status,
+            hardware_acceleration::set_acceleration_mode,
+            hardware_acceleration::acknowledge_acceleration_notice,
             whisper_engine::commands::whisper_init,
             whisper_engine::commands::whisper_get_available_models,
             whisper_engine::commands::whisper_load_model,
@@ -614,6 +615,7 @@ pub fn run() {
             api::api_save_transcript,
             api::open_meeting_folder,
             api::open_external_url,
+            export::save_pdf_file,
             // Custom OpenAI commands
             api::api_save_custom_openai_config,
             api::api_get_custom_openai_config,

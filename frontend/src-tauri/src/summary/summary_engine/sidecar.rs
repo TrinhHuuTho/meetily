@@ -52,6 +52,9 @@ pub struct SidecarManager {
 
     /// Idle timeout in seconds (configurable via env var)
     idle_timeout_secs: u64,
+
+    /// Whether the running sidecar may use the GPU (not started with LLAMA_CPU_ONLY)
+    gpu_allowed: Arc<AtomicBool>,
 }
 
 /// RAII guard for tracking active requests
@@ -101,17 +104,18 @@ impl SidecarManager {
             helper_binary_path,
             current_model_path: Arc::new(RwLock::new(None)),
             idle_timeout_secs,
+            gpu_allowed: Arc::new(AtomicBool::new(false)),
         })
     }
 
     /// Resolve the path to llama-helper binary
     fn resolve_helper_binary() -> Result<PathBuf> {
         // 1. Check environment variable (dev mode or manual override)
-        if let Ok(env_path) = std::env::var("MEETILY_LLAMA_HELPER") {
+        if let Ok(env_path) = std::env::var("TRINOTE_LLAMA_HELPER") {
             if !env_path.is_empty() {
                 let path = PathBuf::from(env_path);
                 if path.exists() {
-                    log::info!("Using llama-helper from MEETILY_LLAMA_HELPER: {}", path.display());
+                    log::info!("Using llama-helper from TRINOTE_LLAMA_HELPER: {}", path.display());
                     return Ok(path);
                 }
             }
@@ -255,7 +259,7 @@ impl SidecarManager {
         }
 
         Err(anyhow!(
-            "llama-helper binary not found. Build with 'cd llama-helper && cargo build --release' or set MEETILY_LLAMA_HELPER env var."
+            "llama-helper binary not found. Build with 'cd llama-helper && cargo build --release' or set TRINOTE_LLAMA_HELPER env var."
         ))
     }
 
@@ -297,6 +301,13 @@ impl SidecarManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit()) // Log stderr to main process
             .env("LLAMA_IDLE_TIMEOUT", self.idle_timeout_secs.to_string());
+
+        let gpu_allowed = crate::hardware_acceleration::use_gpu(crate::hardware_acceleration::GpuEngine::Summary);
+        if !gpu_allowed {
+            log::info!("Starting llama-helper on the CPU (hardware acceleration setting)");
+            command.env("LLAMA_CPU_ONLY", "1");
+        }
+        self.gpu_allowed.store(gpu_allowed, Ordering::SeqCst);
 
         #[cfg(target_os = "windows")]
         {
@@ -537,6 +548,20 @@ impl SidecarManager {
     }
 
     /// Check if sidecar is healthy
+    /// Whether the sidecar process exited on its own (crashed) rather than being stopped
+    pub async fn exited_unexpectedly(&self) -> bool {
+        let mut child_lock = self.child_process.lock().await;
+        match child_lock.as_mut() {
+            Some(child) => matches!(child.try_wait(), Ok(Some(_))),
+            None => false,
+        }
+    }
+
+    /// Whether the running sidecar may use the GPU
+    pub fn gpu_allowed(&self) -> bool {
+        self.gpu_allowed.load(Ordering::SeqCst)
+    }
+
     pub fn is_healthy(&self) -> bool {
         self.is_healthy.load(Ordering::SeqCst)
     }
@@ -566,6 +591,7 @@ impl SidecarManager {
             helper_binary_path: self.helper_binary_path.clone(),
             current_model_path: self.current_model_path.clone(),
             idle_timeout_secs: self.idle_timeout_secs,
+            gpu_allowed: self.gpu_allowed.clone(),
         };
 
         tokio::spawn(async move {
@@ -614,6 +640,7 @@ impl SidecarManager {
             helper_binary_path: self.helper_binary_path.clone(),
             current_model_path: self.current_model_path.clone(),
             idle_timeout_secs: self.idle_timeout_secs,
+            gpu_allowed: self.gpu_allowed.clone(),
         };
 
         tokio::spawn(async move {

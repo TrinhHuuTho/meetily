@@ -17,10 +17,10 @@ const nextConfig = {
   // Add webpack configuration for Tauri
   webpack: (config, { dev, isServer }) => {
     if (dev && !isServer) {
-      // First on-demand compile of the BlockNote-heavy chunks can exceed webpack's
-      // default 120s chunk timeout (e.g. while cargo is building in parallel),
-      // which surfaces as a ChunkLoadError in the Tauri webview.
-      config.output.chunkLoadTimeout = 10 * 60 * 1000;
+      // The dev server only sends the page after compiling it, so chunks load in
+      // well under a second. A chunk request that is still pending after a minute
+      // is stuck; fail it so the recovery script in app/layout.tsx reloads the page.
+      config.output.chunkLoadTimeout = 60 * 1000;
     }
 
     if (!isServer) {

@@ -2,13 +2,15 @@
 
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
-import { Copy, Save, Loader2 } from 'lucide-react';
+import { Copy, Save, Loader2, FileDown } from 'lucide-react';
 
 interface SummaryUpdaterButtonGroupProps {
   isSaving: boolean;
   isDirty: boolean;
   onSave: () => Promise<void>;
   onCopy: () => Promise<void>;
+  onExportPdf: () => Promise<void>;
+  isExportingPdf: boolean;
 }
 
 export function SummaryUpdaterButtonGroup({
@@ -16,6 +18,8 @@ export function SummaryUpdaterButtonGroup({
   isDirty,
   onSave,
   onCopy,
+  onExportPdf,
+  isExportingPdf,
 }: SummaryUpdaterButtonGroupProps) {
   return (
     <ButtonGroup>
@@ -55,6 +59,21 @@ export function SummaryUpdaterButtonGroup({
       >
         <Copy />
         <span className="hidden @[40rem]:inline">Copy</span>
+      </Button>
+
+      {/* Export summary + transcript as PDF */}
+      <Button
+        variant="outline"
+        size="sm"
+        title="Export summary and transcript as PDF"
+        onClick={() => {
+          onExportPdf();
+        }}
+        disabled={isExportingPdf}
+        className="cursor-pointer"
+      >
+        {isExportingPdf ? <Loader2 className="animate-spin" /> : <FileDown />}
+        <span className="hidden @[40rem]:inline">PDF</span>
       </Button>
 
     </ButtonGroup>

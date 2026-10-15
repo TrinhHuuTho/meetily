@@ -147,10 +147,35 @@ fn detect_vram_gb() -> f32 {
         }
     }
 
-    /// TODO: Vulkan VRAM detection
+    // Other GPU backends (Vulkan): ask llama.cpp's device registry
+    match detect_backend_vram() {
+        Some(vram) => {
+            eprintln!("GPU memory free: {:.2} GB", vram);
+            vram
+        }
+        None => {
+            eprintln!("No GPU found, running on the CPU");
+            0.0
+        }
+    }
+}
 
-    eprintln!("VRAM detection not available, using conservative estimate");
-    4.0 // Conservative fallback
+/// Free memory of the GPU llama.cpp will use. Like llama.cpp's own device selection,
+/// integrated GPUs only count when there is no discrete GPU.
+fn detect_backend_vram() -> Option<f32> {
+    use llama_cpp_2::{list_llama_ggml_backend_devices, LlamaBackendDeviceType};
+
+    let devices = list_llama_ggml_backend_devices();
+    let most_free = |device_type| {
+        devices
+            .iter()
+            .filter(|device| device.device_type == device_type)
+            .map(|device| device.memory_free)
+            .max()
+    };
+    let free = most_free(LlamaBackendDeviceType::Gpu)
+        .or_else(|| most_free(LlamaBackendDeviceType::IntegratedGpu))?;
+    Some(free as f32 / (1024.0 * 1024.0 * 1024.0))
 }
 
 #[cfg(feature = "metal")]
@@ -260,6 +285,11 @@ fn calculate_gpu_layers(
 
 /// Get default GPU layer count with smart detection
 fn get_default_gpu_layers(model_path: &PathBuf, context_size: u32) -> u32 {
+    // Set by TriNote when the user chose CPU only or the GPU crashed before
+    if std::env::var_os("LLAMA_CPU_ONLY").is_some() {
+        eprintln!("LLAMA_CPU_ONLY is set, running on the CPU");
+        return 0;
+    }
     let vram = detect_vram_gb();
     // TODO: Use actual model metadata instead of heuristics
     // Heuristic: Estimate total layers based on file size
@@ -330,7 +360,14 @@ impl ModelState {
         let gpu_layers = get_default_gpu_layers(&model_path, context_size);
 
         // Configure model parameters with GPU offload
-        let model_params = LlamaModelParams::default().with_n_gpu_layers(gpu_layers);
+        let mut model_params = LlamaModelParams::default().with_n_gpu_layers(gpu_layers);
+        if std::env::var_os("LLAMA_CPU_ONLY").is_some() {
+            // Give llama.cpp no GPU devices at all: with only n_gpu_layers = 0 it still
+            // offloads large prompt batches to the GPU
+            model_params = model_params
+                .with_devices(&[])
+                .context("failed to select CPU-only devices")?;
+        }
         let model_params = pin!(model_params);
 
         let model = LlamaModel::load_from_file(&self.backend, model_path.clone(), &model_params)

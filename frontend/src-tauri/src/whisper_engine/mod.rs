@@ -5,3 +5,6 @@ pub mod commands;
 pub use whisper_engine::*;
 pub use acceleration::*;
 pub use commands::*;
+
+#[cfg(test)]
+mod language_tests;

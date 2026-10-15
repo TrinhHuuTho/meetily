@@ -5,6 +5,7 @@ import { Switch } from "./ui/switch"
 import { FolderOpen } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { useConfig, NotificationSettings } from "@/contexts/ConfigContext"
+import { HardwareAccelerationSettings } from "./HardwareAccelerationSettings"
 
 export function PreferenceSettings() {
   const {
@@ -121,11 +122,13 @@ export function PreferenceSettings() {
         </div>
       </div>
 
+      <HardwareAccelerationSettings />
+
       {/* Data Storage Locations Section */}
       <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Data Storage Locations</h3>
         <p className="text-sm text-gray-600 mb-6">
-          View and access where Meetily stores your data
+          View and access where TriNote stores your data
         </p>
 
         <div className="space-y-4">

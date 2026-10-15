@@ -199,6 +199,8 @@ export default function PageContent({
               customPrompt={customPrompt}
               onPromptChange={setCustomPrompt}
               onCopyTranscript={copyOperations.handleCopyTranscript}
+              onExportPdf={copyOperations.handleExportPdf}
+              isExportingPdf={copyOperations.isExportingPdf}
               onOpenMeetingFolder={meetingOperations.handleOpenMeetingFolder}
               isRecording={isRecording}
               disableAutoScroll={true}
@@ -223,6 +225,8 @@ export default function PageContent({
               isSummaryDirty={meetingData.isSummaryDirty}
               onSaveAll={meetingData.saveAllChanges}
               onCopySummary={copyOperations.handleCopySummary}
+              onExportPdf={copyOperations.handleExportPdf}
+              isExportingPdf={copyOperations.isExportingPdf}
               aiSummary={meetingData.aiSummary}
               summaryStatus={summaryGeneration.summaryStatus}
               transcripts={meetingData.transcripts}
