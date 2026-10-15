@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use log::{debug, error, info, warn};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -119,11 +119,19 @@ pub struct RecordingArgs {
     pub save_path: String,
 }
 
-#[derive(Debug, Serialize, Clone)]
-pub struct TranscriptionStatus {
-    pub chunks_in_queue: usize,
-    pub is_processing: bool,
-    pub last_activity_ms: u64,
+/// Forward audio errors to the frontend. When an error stops the capture, finish the
+/// stop through the same path as the tray so IS_RECORDING, the saved audio and the
+/// frontend state stay consistent instead of leaving a "recording" session with no audio.
+fn install_error_callback<R: Runtime>(manager: &RecordingManager, app: &AppHandle<R>) {
+    let app_for_error = app.clone();
+    let auto_stop_requested = AtomicBool::new(false);
+    manager.set_error_callback(move |error, stopped| {
+        let _ = app_for_error.emit("recording-error", error.user_message());
+        if stopped && !auto_stop_requested.swap(true, Ordering::SeqCst) {
+            warn!("Audio error stopped the capture, finalizing the recording");
+            crate::tray::stop_recording_handler(&app_for_error);
+        }
+    });
 }
 
 fn map_recording_start_error<R: Runtime>(
@@ -394,11 +402,7 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     });
     manager.set_meeting_name(Some(effective_meeting_name));
 
-    // Set up error callback
-    let app_for_error = app.clone();
-    manager.set_error_callback(move |error| {
-        let _ = app_for_error.emit("recording-error", error.user_message());
-    });
+    install_error_callback(&manager, &app);
 
     // Start recording with resolved devices (replaces start_recording_with_defaults_and_auto_save call)
     let transcription_receiver = manager
@@ -581,11 +585,7 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     });
     manager.set_meeting_name(Some(effective_meeting_name));
 
-    // Set up error callback
-    let app_for_error = app.clone();
-    manager.set_error_callback(move |error| {
-        let _ = app_for_error.emit("recording-error", error.user_message());
-    });
+    install_error_callback(&manager, &app);
 
     // Start recording with specified devices and auto_save setting
     let transcription_receiver = manager
@@ -899,109 +899,6 @@ pub async fn stop_recording<R: Runtime>(
         }
     }
 
-    // Step 3.5: Track meeting ended analytics with privacy-safe metadata
-    // Extract all data from manager BEFORE any async operations to avoid Send issues
-    let analytics_data = if let Some(ref manager) = manager_for_cleanup {
-        let state = manager.get_state();
-        let stats = state.get_stats();
-
-        Some((
-            manager.get_recording_duration(),
-            manager.get_active_recording_duration().unwrap_or(0.0),
-            manager.get_total_pause_duration(),
-            manager.get_transcript_segments().len() as u64,
-            state.has_fatal_error(),
-            state.get_microphone_device().map(|d| d.name.clone()),
-            state.get_system_device().map(|d| d.name.clone()),
-            stats.chunks_processed,
-        ))
-    } else {
-        None
-    };
-
-    // Now perform async analytics tracking without holding manager reference
-    if let Some((total_duration, active_duration, pause_duration, transcript_segments_count, had_fatal_error, mic_device_name, sys_device_name, chunks_processed)) = analytics_data {
-        info!("📊 Collecting analytics for meeting end");
-
-        // Helper function to classify device type from device name (privacy-safe)
-        fn classify_device_type(device_name: &str) -> &'static str {
-            let name_lower = device_name.to_lowercase();
-            // Check for Bluetooth keywords
-            if name_lower.contains("bluetooth")
-                || name_lower.contains("airpods")
-                || name_lower.contains("beats")
-                || name_lower.contains("headphones")
-                || name_lower.contains("bt ")
-                || name_lower.contains("wireless") {
-                "Bluetooth"
-            } else {
-                "Wired"
-            }
-        }
-
-        // Get transcription model info (already loaded above for model unload)
-        let transcription_config = match crate::api::api::api_get_transcript_config(
-            app.clone(),
-            app.clone().state(),
-            None,
-        )
-        .await
-        {
-            Ok(Some(config)) => Some((config.provider, config.model)),
-            _ => None,
-        };
-
-        let (transcription_provider, transcription_model) = transcription_config
-            .unwrap_or_else(|| ("unknown".to_string(), "unknown".to_string()));
-
-        // Get summary model info from API
-        let summary_config = match crate::api::api::api_get_model_config(
-            app.clone(),
-            app.clone().state(),
-            None,
-        )
-        .await
-        {
-            Ok(Some(config)) => Some((config.provider, config.model)),
-            _ => None,
-        };
-
-        let (summary_provider, summary_model) = summary_config
-            .unwrap_or_else(|| ("unknown".to_string(), "unknown".to_string()));
-
-        // Classify device types (privacy-safe)
-        let microphone_device_type = mic_device_name
-            .as_ref()
-            .map(|name| classify_device_type(name))
-            .unwrap_or("Unknown");
-
-        let system_audio_device_type = sys_device_name
-            .as_ref()
-            .map(|name| classify_device_type(name))
-            .unwrap_or("Unknown");
-
-        // Track meeting ended event with privacy-safe data
-        match crate::analytics::commands::track_meeting_ended(
-            transcription_provider.clone(),
-            transcription_model.clone(),
-            summary_provider.clone(),
-            summary_model.clone(),
-            total_duration,
-            active_duration,
-            pause_duration,
-            microphone_device_type.to_string(),
-            system_audio_device_type.to_string(),
-            chunks_processed,
-            transcript_segments_count,
-            had_fatal_error,
-        )
-        .await
-        {
-            Ok(_) => info!("✅ Analytics tracked successfully for meeting end"),
-            Err(e) => warn!("⚠️ Failed to track analytics: {}", e),
-        }
-    }
-
     // Step 4: Finalize recording state and cleanup resources safely
     let _ = app.emit(
         "recording-shutdown-progress",
@@ -1100,15 +997,6 @@ pub async fn stop_recording<R: Runtime>(
 /// Check if recording is active
 pub async fn is_recording() -> bool {
     IS_RECORDING.load(Ordering::SeqCst)
-}
-
-/// Get recording statistics
-pub async fn get_transcription_status() -> TranscriptionStatus {
-    TranscriptionStatus {
-        chunks_in_queue: 0,
-        is_processing: IS_RECORDING.load(Ordering::SeqCst),
-        last_activity_ms: 0,
-    }
 }
 
 /// Pause the current recording
@@ -1379,7 +1267,6 @@ async fn do_mic_swap(device_name: &str, session: &Arc<super::RecordingState>) ->
         device_arc.clone(),
         session.clone(),
         super::recording_state::DeviceType::Microphone,
-        None,
     ).await.map_err(|e| format!("Failed to create mic stream: {}", e))?;
 
     // Resolve the current default output OUTSIDE the lock — a CoreAudio stall here

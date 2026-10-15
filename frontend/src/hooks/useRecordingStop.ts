@@ -6,12 +6,13 @@ import { useTranscripts } from '@/contexts/TranscriptContext';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useRecordingState, RecordingStatus } from '@/contexts/RecordingStateContext';
 import { storageService } from '@/services/storageService';
-import { transcriptService } from '@/services/transcriptService';
-import Analytics from '@/lib/analytics';
 import {
   applyPinnedSummaryLanguageToMeeting,
   detectAndCacheSummaryLanguage,
 } from '@/lib/summary-language-preferences';
+
+// Grace period for transcript-update events emitted just before stop_recording resolved
+const LATE_TRANSCRIPT_GRACE_MS = 1500;
 
 type SummaryStatus = 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error';
 
@@ -26,13 +27,11 @@ interface UseRecordingStopReturn {
 
 /**
  * Custom hook for managing recording stop lifecycle.
- * Handles the complex stop sequence: transcription wait → buffer flush → SQLite save → navigation.
+ * Handles the stop sequence: late transcript grace period → buffer flush → SQLite save → navigation.
  *
  * Features:
- * - Transcription completion polling (60s max, 500ms interval)
  * - Transcript buffer flush coordination
  * - SQLite meeting save with folder_path from sessionStorage
- * - Comprehensive analytics tracking (duration, word count, activation)
  * - Auto-navigation to meeting details
  * - Toast notifications for success/error
  * - Window exposure for Rust callbacks
@@ -145,68 +144,11 @@ export function useRecordingStop(
       // This function only handles post-stop processing (transcription wait, API call, navigation)
       console.log('Recording already stopped by RecordingControls, processing transcription...');
 
-      // Wait for transcription to complete
-      setStatus(RecordingStatus.PROCESSING_TRANSCRIPTS, 'Waiting for transcription...');
-      console.log('Waiting for transcription to complete...');
-
-      const MAX_WAIT_TIME = 60000; // 60 seconds maximum wait (increased for longer processing)
-      const POLL_INTERVAL = 500; // Check every 500ms
-      let elapsedTime = 0;
-      let transcriptionComplete = false;
-
-      // Listen for transcription-complete event
-      const unlistenComplete = await listen('transcription-complete', () => {
-        console.log('Received transcription-complete event');
-        transcriptionComplete = true;
-      });
-
-      // Poll for transcription status
-      while (elapsedTime < MAX_WAIT_TIME && !transcriptionComplete) {
-        try {
-          const status = await transcriptService.getTranscriptionStatus();
-          console.log('Transcription status:', status);
-
-          // Check if transcription is complete
-          if (!status.is_processing && status.chunks_in_queue === 0) {
-            console.log('Transcription complete - no active processing and no chunks in queue');
-            transcriptionComplete = true;
-            break;
-          }
-
-          // If no activity for more than 8 seconds and no chunks in queue, consider it done (increased from 5s to 8s)
-          if (status.last_activity_ms > 8000 && status.chunks_in_queue === 0) {
-            console.log('Transcription likely complete - no recent activity and empty queue');
-            transcriptionComplete = true;
-            break;
-          }
-
-          // Update user with current status
-          if (status.chunks_in_queue > 0) {
-            console.log(`Processing ${status.chunks_in_queue} remaining audio chunks...`);
-            setStatus(RecordingStatus.PROCESSING_TRANSCRIPTS, `Processing ${status.chunks_in_queue} remaining chunks...`);
-          }
-
-          // Wait before next check
-          await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
-          elapsedTime += POLL_INTERVAL;
-        } catch (error) {
-          console.error('Error checking transcription status:', error);
-          break;
-        }
-      }
-
-      // Clean up listener
-      console.log('🧹 CLEANUP: Cleaning up transcription-complete listener');
-      unlistenComplete();
-
-      if (!transcriptionComplete && elapsedTime >= MAX_WAIT_TIME) {
-        console.warn('⏰ Transcription wait timeout reached after', elapsedTime, 'ms');
-      } else {
-        console.log('✅ Transcription completed after', elapsedTime, 'ms');
-        // Wait longer for any late transcript segments (increased from 1s to 4s)
-        console.log('⏳ Waiting for late transcript segments...');
-        await new Promise(resolve => setTimeout(resolve, 4000));
-      }
+      // stop_recording only resolves after the Rust transcription task has drained its
+      // queue, so transcription is already finished here. Give in-flight
+      // transcript-update events a moment to reach the listener before flushing.
+      setStatus(RecordingStatus.PROCESSING_TRANSCRIPTS, 'Finalizing transcript...');
+      await new Promise(resolve => setTimeout(resolve, LATE_TRANSCRIPT_GRACE_MS));
 
       // Final buffer flush: process ALL remaining transcripts regardless of timing
       const flushStartTime = Date.now();
@@ -233,7 +175,7 @@ export function useRecordingStop(
       // Save to SQLite
       // NOTE: enabled to save COMPLETE transcripts after frontend receives all updates
       // This ensures user sees all transcripts streaming in before database save
-      if (isCallApi && transcriptionComplete == true) {
+      if (isCallApi) {
 
         setStatus(RecordingStatus.SAVING, 'Saving meeting to database...');
 
@@ -329,7 +271,6 @@ export function useRecordingStop(
               label: 'View Meeting',
               onClick: () => {
                 router.push(`/meeting-details?id=${meetingId}`);
-                Analytics.trackButtonClick('view_meeting_from_toast', 'recording_complete');
               }
             },
             duration: 10000,
@@ -339,61 +280,10 @@ export function useRecordingStop(
           setTimeout(() => {
             router.push(`/meeting-details?id=${meetingId}&source=recording`);
             clearTranscripts()
-            Analytics.trackPageView('meeting_details');
 
             // Reset to IDLE after navigation
             setStatus(RecordingStatus.IDLE);
           }, 2000);
-          // Track meeting completion analytics
-          try {
-            // Calculate meeting duration from transcript timestamps
-            let durationSeconds = 0;
-            if (freshTranscripts.length > 0 && freshTranscripts[0].audio_start_time !== undefined) {
-              // Use audio_end_time of last transcript if available
-              const lastTranscript = freshTranscripts[freshTranscripts.length - 1];
-              durationSeconds = lastTranscript.audio_end_time || lastTranscript.audio_start_time || 0;
-            }
-
-            // Calculate word count
-            const transcriptWordCount = freshTranscripts
-              .map(t => t.text.split(/\s+/).length)
-              .reduce((a, b) => a + b, 0);
-
-            // Calculate words per minute
-            const wordsPerMinute = durationSeconds > 0 ? transcriptWordCount / (durationSeconds / 60) : 0;
-
-            // Get meetings count today
-            const meetingsToday = await Analytics.getMeetingsCountToday();
-
-            // Track meeting completed
-            await Analytics.trackMeetingCompleted(meetingId, {
-              duration_seconds: durationSeconds,
-              transcript_segments: freshTranscripts.length,
-              transcript_word_count: transcriptWordCount,
-              words_per_minute: wordsPerMinute,
-              meetings_today: meetingsToday
-            });
-
-            // Update meeting count in analytics.json
-            await Analytics.updateMeetingCount();
-
-            // Check for activation (first meeting)
-            const { Store } = await import('@tauri-apps/plugin-store');
-            const store = await Store.load('analytics.json');
-            const totalMeetings = await store.get<number>('total_meetings');
-
-            if (totalMeetings === 1) {
-              const daysSinceInstall = await Analytics.calculateDaysSince('first_launch_date');
-              await Analytics.track('user_activated', {
-                meetings_count: '1',
-                days_since_install: daysSinceInstall?.toString() || 'null',
-                first_meeting_duration_seconds: durationSeconds.toString()
-              });
-            }
-          } catch (analyticsError) {
-            console.error('Failed to track meeting completion analytics:', analyticsError);
-            // Don't block user flow on analytics errors
-          }
 
         } catch (saveError) {
           console.error('Failed to save meeting to database:', saveError);
