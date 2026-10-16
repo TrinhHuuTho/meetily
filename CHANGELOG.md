@@ -4,7 +4,7 @@ All notable changes to TriNote are listed here. The format follows [Keep a Chang
 
 TriNote is a fork of [Meetily](https://github.com/Zackriya-Solutions/meeting-minutes) 0.4.1. The 1.0.0 entry lists the differences from that release.
 
-## [1.0.0] - Unreleased
+## [1.0.0] - 2026-10-16
 
 ### Added
 
