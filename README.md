@@ -1,11 +1,8 @@
 <p align="center">
-  <img src="frontend/src-tauri/icons/128x128@2x.png" width="96" alt="TriNote icon">
+  <img src="docs/images/banner.png" width="640" alt="TriNote: private meeting notes for English, Vietnamese and Chinese">
 </p>
 
-<h1 align="center">TriNote</h1>
-
 <p align="center">
-  Private meeting notes for English, Vietnamese and Chinese.<br>
   Record, transcribe and summarize meetings on your own computer.
 </p>
 

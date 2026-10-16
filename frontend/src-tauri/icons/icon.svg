@@ -1,14 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#14B8A6"/>
-      <stop offset="1" stop-color="#2563EB"/>
+      <stop offset="0" stop-color="#3730A3"/>
+      <stop offset="1" stop-color="#7C3AED"/>
     </linearGradient>
   </defs>
   <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
-  <path d="M316 220 H628 L764 356 V764 A48 48 0 0 1 716 812 H316 A48 48 0 0 1 268 764 V268 A48 48 0 0 1 316 220 Z" fill="#FFFFFF"/>
-  <path d="M628 220 V316 A40 40 0 0 0 668 356 H764 Z" fill="#BFDBFE"/>
-  <rect x="340" y="432" width="300" height="56" rx="28" fill="#F59E0B"/>
-  <rect x="340" y="540" width="352" height="56" rx="28" fill="#EF4444"/>
-  <rect x="340" y="648" width="236" height="56" rx="28" fill="#2563EB"/>
+  <g transform="translate(-24 52)">
+    <g transform="translate(470 620) rotate(-45)" fill="#FFFFFF">
+      <path d="M0 0 L84 -40 L84 40 Z"/>
+      <path d="M100 -40 H350 V40 H100 Z"/>
+      <path d="M366 -40 H392 A40 40 0 0 1 392 40 H366 Z"/>
+    </g>
+    <path d="M286 470 C380 470 456 492 440 528 C424 564 318 574 306 616 C296 652 360 650 466 624" fill="none" stroke="#FFFFFF" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
 </svg>
