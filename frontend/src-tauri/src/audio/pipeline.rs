@@ -21,10 +21,16 @@ use super::vad::{ContinuousVadProcessor};
 /// they have no latency requirement, so they optimize purely for ASR request
 /// length. The live path cannot: with continuous audio (e.g. a podcast played
 /// as system audio) a 2000ms redemption keeps one VAD segment open
-/// indefinitely, withholds live transcript emission, and overruns the
-/// accumulated-speech-buffer warning threshold. Bounded live segmentation
-/// during continuous speech is tracked separately in #756.
+/// indefinitely and withholds live transcript emission.
 const VAD_REDEMPTION_TIME_MS: u32 = 500;
+
+/// Longest live segment. Speech without a 500ms pause (one person talking on, two
+/// people talking over each other, a voice in the background) is cut at the
+/// quietest moment of the segment's last quarter, so the transcript keeps up,
+/// each piece gets its own language detection, and the speech engine's memory
+/// stays bounded: Parakeet needs about 9 MB per second of segment, so one
+/// 5-minute segment took 3 GB.
+const VAD_MAX_SEGMENT: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Ring buffer for synchronized audio mixing
 /// Accumulates samples from mic and system streams until we have aligned windows
@@ -748,13 +754,13 @@ impl AudioPipeline {
         // batch value (2000ms, `import.rs`/`retranscription.rs`) was tried here
         // first, but under continuous system audio it kept a VAD segment open
         // indefinitely and withheld live transcript emission, so live and batch
-        // deliberately diverge. Bounded live segments under continuous speech
-        // are tracked in #756.
-        let vad_processor =
-            ContinuousVadProcessor::new(sample_rate, VAD_REDEMPTION_TIME_MS)?;
+        // deliberately diverge. Speech that never pauses is cut at VAD_MAX_SEGMENT.
+        let vad_processor = ContinuousVadProcessor::new(sample_rate, VAD_REDEMPTION_TIME_MS)?
+            .with_max_segment(VAD_MAX_SEGMENT);
         info!(
-            "VAD-driven pipeline: segments dispatched per speech burst (redemption_time={}ms)",
-            VAD_REDEMPTION_TIME_MS
+            "VAD-driven pipeline: segments dispatched per speech burst (redemption_time={}ms, max {}s)",
+            VAD_REDEMPTION_TIME_MS,
+            VAD_MAX_SEGMENT.as_secs()
         );
 
         // Initialize professional audio mixing components
@@ -1101,9 +1107,10 @@ mod tests {
 
     #[test]
     fn test_live_vad_redemption_matches_pro_policy() {
-        // Live uses the established 500ms pause policy; it does not bound
-        // uninterrupted speech. Batch import/retranscription use 2000ms.
-        // See #679 and #756.
+        // Live uses the established 500ms pause policy and cuts uninterrupted
+        // speech at 20s. Batch import/retranscription use 2000ms and split long
+        // segments afterwards (`split_segment_at_silence`).
         assert_eq!(VAD_REDEMPTION_TIME_MS, 500);
+        assert_eq!(VAD_MAX_SEGMENT.as_secs(), 20);
     }
 }
