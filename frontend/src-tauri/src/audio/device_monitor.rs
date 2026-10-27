@@ -277,7 +277,9 @@ impl AudioDeviceMonitor {
         device_update_mailbox: Arc<std::sync::Mutex<Option<(String, Option<String>)>>>,
     ) {
         let mut last_device_list = Vec::new();
-        let check_interval = Duration::from_secs(2); // Poll every 2 seconds
+        // Every check lists the audio devices, which on Linux opens every ALSA device
+        // and leaks a little memory in alsa-lib, so poll slowly while all is well
+        let mut check_interval = Duration::from_secs(2);
 
         #[cfg(target_os = "macos")]
         let _listener_guard = register_device_change_listeners(device_change_notify.clone());
@@ -393,6 +395,7 @@ impl AudioDeviceMonitor {
 
             if next_interval != check_interval {
                 debug!("Adjusting monitor interval to {:?}", next_interval);
+                check_interval = next_interval;
             }
         }
     }
